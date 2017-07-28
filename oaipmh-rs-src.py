@@ -24,11 +24,13 @@ parser.add_argument('collection-name', metavar='<collection-name>', nargs=1, hel
 
 args = vars(parser.parse_args())
 
+collection_name = args['collection-name'][0]
+resourcesync_url = args['resourcesync-server-hostname'][0]
+
 # some logic to set default values
 document_root = '/var/www/html' if args['resourcesync-server-document-root'] == 'apache' else '/var/lib/tomcat/webapps/default' if args['resourcesync-server-document-root'] == 'tomcat' else args['resourcesync-server-document-root']
 resource_dir = args['resource_dir'][0] if args['resource_dir'] is not None else 'resourcesync'
-collection_name = args['collection-name'][0]
-resourcesync_url = args['resourcesync-server-hostname'][0]
+metadata_dir = args['metadata_dir'][0] if args['metadata_dir'] is not None else collection_name
 
 oaipmh_base_url = args['oai-pmh-base-url'][0]
 oaipmh_set = args['collection-name'][0] if args['no_set_param'] is None else None
@@ -42,9 +44,8 @@ my_generator = OAIPMHGenerator(params={
 rs = ResourceSync(generator=my_generator,
                   strategy=args['strategy'][0],
                   resource_dir='{}/{}'.format(document_root, resource_dir),
-                  metadata_dir=collection_name,
+                  metadata_dir=metadata_dir
                   description_dir=document_root,
                   url_prefix='{}/{}'.format(resourcesync_url, resource_dir),
                   is_saving_sitemaps=True)
 rs.execute()
-################################################################################
