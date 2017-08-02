@@ -72,7 +72,7 @@ def main():
 
         if collection['new'] == True:
             # baseline sync
-            command = ['resync', '--baseline', '--verbose', '--delete', '--sitemap', collection['capabilitylist'], collection['urlMapFrom'], collection['filePathMapTo']]
+            command = ['resync', '--baseline', '--verbose', '--delete', '--sitemap', collection['resourcelistUri'], collection['urlMapFrom'], collection['filePathMapTo']]
             actions = subprocess.check_output(command, stderr=subprocess.STDOUT)
             print(command)
 
@@ -81,8 +81,7 @@ def main():
             db.update({'new': False}, Row['name'] == collection['name'])
         else:
             # incremental sync
-            # TODO: currently broken, reliance on --from param
-            command = ['resync', '--incremental', '--verbose', '--delete', '--sitemap', collection['capabilitylist'], collection['urlMapFrom'], collection['filePathMapTo']]
+            command = ['resync', '--incremental', '--verbose', '--delete', '--sitemap', collection['resourcelistUri'], '--changelist-uri', collection['changelistUri'], collection['urlMapFrom'], collection['filePathMapTo']]
             actions = subprocess.check_output(command, stderr=subprocess.STDOUT)
             print(command)
 
