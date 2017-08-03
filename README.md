@@ -18,7 +18,7 @@ This is a collection of wrapper scripts for easy setup and use of both sides (so
    ```bash
    pip3 install -r oaipmh-rs-dest-requirements.txt
    ```
-4. Setup a TinyDB instance (usually local) and a Solr index (usually remote) for the script.
+4. Setup a TinyDB instance (usually local) according to the [schema](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/TinyDB-Schema) and a Solr 4.10 index (usually remote).
 5. Create a `cron` job to schedule the script for execution.
 
 ## Usage
