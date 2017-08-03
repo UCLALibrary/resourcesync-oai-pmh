@@ -68,20 +68,20 @@ def main():
     solr = pysolr.Solr(args.solrUrl)
     db = TinyDB('db.json')
 
-    for collection in db:
+    for row in db:
 
-        if collection['new'] == True:
+        if row['new'] == True:
             # baseline sync
-            command = ['resync', '--baseline', '--verbose', '--delete', '--sitemap', collection['resourcelistUri'], collection['urlMapFrom'], collection['filePathMapTo']]
+            command = ['resync', '--baseline', '--verbose', '--delete', '--sitemap', row['resourcelist_uri'], row['url_map_from'], row['file_path_map_to']]
             actions = subprocess.check_output(command, stderr=subprocess.STDOUT)
             print(command)
 
-            # set collection.new = False
+            # set row.new = False
             Row = Query()
-            db.update({'new': False}, Row['name'] == collection['name'])
+            db.update({'new': False}, Row['collection_key'] == row['collection_key'])
         else:
             # incremental sync
-            command = ['resync', '--incremental', '--verbose', '--delete', '--sitemap', collection['resourcelistUri'], '--changelist-uri', collection['changelistUri'], collection['urlMapFrom'], collection['filePathMapTo']]
+            command = ['resync', '--incremental', '--verbose', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], row['file_path_map_to']]
             actions = subprocess.check_output(command, stderr=subprocess.STDOUT)
             print(command)
 
@@ -99,13 +99,13 @@ def main():
 
                 if action == b'created:':
                     print('Creating Solr document for {}'.format(recordIdentifier))
-                    doc = createSolrDoc(recordIdentifier, collection['name'], collection['institution'], tags)
+                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
                     print(doc)
                     solr.add([doc])
 
                 elif action == b'updated:':
                     print('Updating Solr document for {}'.format(recordIdentifier))
-                    doc = createSolrDoc(recordIdentifier, collection['name'], collection['institution'], tags)
+                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
                     print(doc)
                     solr.add([doc])
 
