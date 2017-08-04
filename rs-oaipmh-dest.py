@@ -14,6 +14,15 @@ import subprocess
 from tinydb import TinyDB, Query
 from bs4 import BeautifulSoup
 import argparse
+import logging
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    filename='rs-oaipmh-dest.log',
+    format='%(asctime)s\t%(levelname)s\t%(message)s',
+    datefmt='%m/%d/%Y %I:%M:%S %p'
+    )
 
 parser = argparse.ArgumentParser(description='Synchronize our local copy with updates from member institutions.')
 parser.add_argument('tinydb', metavar='TINYDB', nargs=1, help='Path to the local TinyDB instance.')
@@ -48,7 +57,7 @@ def createSolrDoc(identifier, colname, instname, tags):
 
     for tag in tags:
 
-        # handle newlines and other whitespace
+        # ignore newlines and other whitespace
         if tag.name is None:
             continue
 
@@ -66,56 +75,97 @@ def createSolrDoc(identifier, colname, instname, tags):
 
 def main():
 
-    solr = pysolr.Solr(args.solrUrl[0])
-    db = TinyDB(args.tinydb[0])
+    logging.info('--- STARTING SCHEDULED RUN ---')
+    logging.info('                              ')
 
-    for row in db:
+    try:
+        solr = pysolr.Solr(args.solrUrl[0])
+        open(args.tinydb[0], 'r')
+    except:
+        logging.critical('Invalid command line arguments')
+    else:
+        db = TinyDB(args.tinydb[0])
+        for row in db:
 
-        if row['new'] == True:
-            # baseline sync
-            command = ['resync', '--baseline', '--verbose', '--delete', '--sitemap', row['resourcelist_uri'], row['url_map_from'], row['file_path_map_to']]
-            actions = subprocess.check_output(command, stderr=subprocess.STDOUT)
-            print(command)
+            if row['new'] == True:
 
-            # set row.new = False
-            Row = Query()
-            db.update({'new': False}, Row['collection_key'] == row['collection_key'])
-        else:
-            # incremental sync
-            command = ['resync', '--incremental', '--verbose', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], row['file_path_map_to']]
-            actions = subprocess.check_output(command, stderr=subprocess.STDOUT)
-            print(command)
+                # baseline sync
+                command = ['resync', '--baseline', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], row['url_map_from'], row['file_path_map_to']]
+                try:
+                    actions = subprocess.run(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        check=True
+                        )
+                except subprocess.CalledProcessError as e:
+                    logging.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
+                    logging.error(e)
+                    continue
 
-        for line in actions.splitlines():
-            action = line.split(b' ')[0]
-            if action in [b'created:', b'updated:', b'deleted:']:
+                # set row.new = False
+                Row = Query()
+                db.update({'new': False}, Row['collection_key'] == row['collection_key'])
 
-                localFile = line.split(b' -> ')[1]
-                print(localFile)
+            else:
 
-                with open(localFile) as fp:
-                    soup = BeautifulSoup(fp, 'xml')
-                    recordIdentifier = re.sub(r':', '_3A', soup.find('identifier').string)
-                    tags = soup.find('dc').contents
+                # incremental sync
+                command = ['resync', '--incremental', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], row['file_path_map_to']]
+                try:
+                    actions = subprocess.run(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        check=True
+                        )
+                except subprocess.CalledProcessError as e:
+                    logging.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
+                    logging.error(e)
+                    continue
 
-                if action == b'created:':
-                    print('Creating Solr document for {}'.format(recordIdentifier))
-                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
-                    print(doc)
-                    solr.add([doc])
+            for line in actions.stdout.splitlines():
+                action = line.split(b' ')[0]
+                if action in [b'created:', b'updated:', b'deleted:']:
 
-                elif action == b'updated:':
-                    print('Updating Solr document for {}'.format(recordIdentifier))
-                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
-                    print(doc)
-                    solr.add([doc])
+                    localFile = line.split(b' -> ')[1]
+                    logging.debug('Cenerating Solr document from records in "{}"'.format(localFile))
 
-                elif action == b'deleted:':
-                    print('Deleting Solr document for {}'.format(recordIdentifier))
-                    print(doc)
-                    solr.delete(id=recordIdentifier)
-                else:
-                    print('There was a problem')
+                    with open(localFile) as fp:
+                        soup = BeautifulSoup(fp, 'xml')
+                        recordIdentifier = re.sub(r':', '_3A', soup.find('identifier').string)
+                        tags = soup.find('dc').contents
+
+                    if action == b'created:':
+
+                        logging.info('Creating Solr document for {}'.format(recordIdentifier))
+                        doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
+                        try:
+                            solr.add([doc])
+                        except:
+                            logging.error('Something went wrong while trying to send data to Solr')
+                            continue
+
+                    elif action == b'updated:':
+
+                        logging.info('Updating Solr document for {}'.format(recordIdentifier))
+                        doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
+                        try:
+                            solr.add([doc])
+                        except:
+                            logging.error('Something went wrong while trying to send data to Solr')
+                            continue
+
+                    elif action == b'deleted:':
+
+                        logging.info('Deleting Solr document for {}'.format(recordIdentifier))
+                        try:
+                            solr.delete(id=recordIdentifier)
+                        except:
+                            logging.error('Something went wrong while trying to send data to Solr')
+                            continue
+
+    logging.info('                              ')
+    logging.info('---  ENDING SCHEDULED RUN  ---\n')
 
 if __name__ == '__main__':
     main()
