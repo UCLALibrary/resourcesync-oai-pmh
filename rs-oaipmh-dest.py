@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 import argparse
 
 parser = argparse.ArgumentParser(description='Synchronize our local copy with updates from member institutions.')
+parser.add_argument('tinydb', metavar='TINYDB', nargs=1, help='Path to the local TinyDB instance.')
 parser.add_argument('solrUrl', metavar='SOLR', nargs=1, help='Base URL of Solr index.')
 args = parser.parse_args()
 
@@ -65,8 +66,8 @@ def createSolrDoc(identifier, colname, instname, tags):
 
 def main():
 
-    solr = pysolr.Solr(args.solrUrl)
-    db = TinyDB('db.json')
+    solr = pysolr.Solr(args.solrUrl[0])
+    db = TinyDB(args.tinydb[0])
 
     for row in db:
 
