@@ -1,6 +1,6 @@
 #!/usr/bin/python3.6
 #
-# oaipmh-rs-src.py
+# rs-oaipmh-src.py
 
 from resourcesync.resourcesync import ResourceSync, Parameters
 from resourcesync.generators.oaipmh_generator import OAIPMHGenerator

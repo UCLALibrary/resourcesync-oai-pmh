@@ -1,11 +1,11 @@
 #!/usr/bin/python3
 
+# rs-oaipmh-dest.py
+#
 # This script is to be run on the ResourceSync destination server.
 # It does two main things: 
 # - Synchronize our local copy of each collection with updates from member institutions.
 # - Propagate these changes to Solr
-
-# Usage: python3 oaipmh-rs.py
 
 import re
 import pysolr
