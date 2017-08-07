@@ -7,16 +7,16 @@ This is a collection of wrapper scripts for easy setup and use of both sides (so
 ### Source
 
 1. Install Python 3.5 or greater.
-2. Download `rs-oaipmh-src.py`.
+2. Download `rs_oaipmh_src.py`.
 3. Install its singular dependency by following the instructions [here](https://github.com/resourcesync/py-resourcesync#installation-from-source) and [here](https://github.com/resourcesync/py-resourcesync#installation).
 
 ### Destination
 
 1. Install Python 3.4 or greater and `cron`.
-2. Download `rs-oaipmh-dest.py`.
+2. Download `rs_oaipmh_dest.py`.
 3. Install dependencies:
    ```bash
-   pip3 install -r rs-oaipmh-dest-requirements.txt
+   pip3 install -r rs_oaipmh_dest_requirements.txt
    ```
 4. Setup a TinyDB instance (usually local) according to the [schema](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/TinyDB-Schema) and a Solr 4.10 index (usually remote).
 5. Create a `cron` job to schedule the script for execution.
