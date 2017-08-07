@@ -24,3 +24,10 @@ This is a collection of wrapper scripts for easy setup and use of both sides (so
 ## Usage
 
 See the [wiki](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki) for recipes.
+
+## Tests
+
+To run automated tests, do:
+```bash
+python3 -m unittest discover -s test
+```
