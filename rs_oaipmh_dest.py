@@ -17,6 +17,7 @@ import argparse
 import logging
 import sys
 from dateutil.parser import parse
+import validators
 
 
 def createSolrDoc(identifier, colname, instname, tags):
@@ -97,20 +98,20 @@ def main():
     logging.info('--- STARTING SCHEDULED RUN ---')
     logging.info('                              ')
 
-    # TODO: check that the URL points to a Solr index (or at least that the URL is well-formed
-    try:
-        solr = pysolr.Solr(args.solrUrl[0])
-    except:
+    # make sure URL is well-formed
+    if not validators.url(args.solrUrl[0]):
         logging.critical('Invalid command line argument: {} is not a valid URL'.format(args.solrUrl[0]))
         exit(1)
 
     try:
-        # throw exception if the file doesn't exist
-        open(args.tinydb[0], 'r')
+        # throws exception if the file doesn't exist
+        with open(args.tinydb[0], 'r') as f:
+            pass
     except:
         logging.critical('Invalid command line argument: {} does not exist'.format(args.tinydb[0]))
         exit(1)
 
+    solr = pysolr.Solr(args.solrUrl[0])
     db = TinyDB(args.tinydb[0])
     for row in db:
 
