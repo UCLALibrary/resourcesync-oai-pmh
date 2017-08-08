@@ -26,6 +26,7 @@ class TestDestination(unittest.TestCase):
 
         # should handle all of these
         for i in range(0, len(dates)):
+            #print(rs_oaipmh_dest.cleanAndNormalizeDate(dates[i]))
             self.assertEqual(rs_oaipmh_dest.cleanAndNormalizeDate(dates[i]), normalizedDates[i])
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 import argparse
 import logging
 import sys
-import dateutil
+from dateutil.parser import parse
 
 
 def createSolrDoc(identifier, colname, instname, tags):
@@ -48,10 +48,19 @@ def createSolrDoc(identifier, colname, instname, tags):
     return doc
 
 def cleanAndNormalizeDate(date):
-    # TODO: add a field for normalized date (for Solr)
-    return
-
-dates = ['[188-?]', 'c1904', '[1889?]', '1900]', '1903], c1895', '1973-08', '1956-09-07', 'ca 1904']
+    # First, see if dateuitl can parse the date string
+    try:
+        year = str(parse(date).year)
+    except ValueError:
+        # If not, find the first four-character substring, the first three characters of which must be decimal digits
+        pattern = re.compile('(\d\d\d.)')
+        year = pattern.search(date).group(0)
+    
+    if re.compile('\d{4}').match(year) is not None:
+        return year
+    else:
+        # If the one's place is unknown, just round down to the nearest decade
+        return year[:3] + '0'
 
 def main():
 
