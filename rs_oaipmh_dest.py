@@ -17,8 +17,35 @@ import argparse
 import logging
 import sys
 from dateutil.parser import parse
+from datetime import date
 import validators
 
+def addValuePossiblyDuplicateKey(key, value, dic):
+    if key in dic:
+        if isinstance(dic[key], collections.MutableSequence):
+            dic[key].append(value)
+        else:
+            dic[key] = [dic[key], value]
+    else:
+        dic[key] = value
+
+tagNameToColumn = {
+    'title': 'title_keyword',
+    'creator': 'creator_keyword',
+    'subject': 'subject_keyword',
+    'description': 'description_keyword',
+    'publisher': 'publisher_keyword',
+    'contributor': 'contributor_keyword',
+    'date': 'date_keyword',
+    'type': 'type_keyword',
+    'format': 'format_keyword',
+    'identifier': 'identifier_keyword',
+    'source': 'source_keyword',
+    'language': 'language_keyword',
+    'relation': 'relation_keyword',
+    'coverage': 'coverage_keyword',
+    'rights': 'rights_keyword'
+    }
 
 def createSolrDoc(identifier, colname, instname, tags):
 
@@ -27,6 +54,7 @@ def createSolrDoc(identifier, colname, instname, tags):
         'collectionName': colname,
         'institutionName': instname
     }
+    dates = set()
 
     for tag in tags:
 
@@ -37,31 +65,79 @@ def createSolrDoc(identifier, colname, instname, tags):
         name = tagNameToColumn[tag.name]
         value = tag.string
 
-        if name in doc:
-            if isinstance(doc[name], collections.MutableSequence):
-                doc[name].append(value)
-            else:
-                doc[name] = [doc[name], value]
-        else:
-            doc[name] = value
+        addValuePossiblyDuplicateKey(name, value, doc)
 
-    doc['date_normalized'] = cleanAndNormalizeDate(tags.find('date'))
+        if tag.name == 'date':
+            dates = dates | cleanAndNormalizeDate(value)
+
+    for decade in facet_decades(dates):
+        addValuePossiblyDuplicateKey('decade', decade, doc)
+
     return doc
 
-def cleanAndNormalizeDate(date):
-    # First, see if dateuitl can parse the date string
+def facet_decades(years):
+    '''Returns a set of decades that spans all of the years in "years".'''
+
+    currentYear = date.today().year
+
+    # matches = set(filter(lambda a: a >= 1000, years))
+    matches = set(filter(lambda a: a <= currentYear, years))
+    if len(matches) == 0:
+        return {}
+
+    start = min(matches) // 10 * 10
+    end = max(matches) + 1
+    return set(range(start, end, 10))
+
+def cleanAndNormalizeDate(dateString):
+    '''Returns a normalized set of years found in the dateString.'''
+
+    # TODO: use this array to generate regex pattern
+    digitPlaceholders = [
+        '-',
+        '?',
+        '*'
+        ]
+    # First, see if dateutil can parse the date string
     try:
-        year = str(parse(date).year)
+        return {parse(dateString).year}
+
+    # If not, find as many substrings that look like years as possible
+    # We'll permit the one's place to be unknown
     except ValueError:
-        # If not, find the first four-character substring, the first three characters of which must be decimal digits
-        pattern = re.compile('(\d\d\d.)')
-        year = pattern.search(date).group(0)
-    
-    if re.compile('\d{4}').match(year) is not None:
-        return year
-    else:
-        # If the one's place is unknown, just round down to the nearest decade
-        return year[:3] + '0'
+        pattern = re.compile(r'(?<!\d)(\d{3}[-*?0-9])(?!\d)')
+        matches = re.findall(pattern, dateString)
+        
+        if len(matches) > 0:
+            # If the one's place is unknown, just round down to the nearest decade
+            return {int(m) if re.compile('\d{4}').match(m) is not None else int(m[:3] + '0') for m in matches}
+        else:
+            # search for years of length three
+            pattern = re.compile(r'(?<!\d)(\d{2}[-*?0-9])(?!\d)')
+            matches = re.findall(pattern, dateString)
+            
+            if len(matches) > 0:
+                # If the one's place is unknown, just round down to the nearest decade
+                return {int(m) if re.compile('\d{3}').match(m) is not None else int(m[:2] + '0') for m in matches}
+            else:
+                # search for patterns of length two
+                pattern = re.compile(r'(?<!\d)(\d[-*?0-9])(?!\d)')
+                matches = re.findall(pattern, dateString)
+                
+                if len(matches) > 0:
+                    # If the one's place is unknown, just round down to the nearest decade
+                    return {int(m) if re.compile('\d{2}').match(m) is not None else int(m[:1] + '0') for m in matches}
+                else:
+                    # search for years of length one
+                    pattern = re.compile(r'(?<!\d)(\d)(?!\d)')
+                    matches = re.findall(pattern, dateString)
+                    
+                    if len(matches) > 0:
+                        # If the one's place is unknown, just round down to the nearest decade
+                        return {int(m) for m in matches}
+                    else:
+                        # error
+                        return {}
 
 def main():
 
@@ -76,24 +152,6 @@ def main():
     parser.add_argument('tinydb', metavar='TINYDB', nargs=1, help='Path to the local TinyDB instance.')
     parser.add_argument('solrUrl', metavar='SOLR', nargs=1, help='Base URL of Solr index.')
     args = parser.parse_args()
-
-    tagNameToColumn = {
-        'title': 'title_keyword',
-        'creator': 'creator_keyword',
-        'subject': 'subject_keyword',
-        'description': 'description_keyword',
-        'publisher': 'publisher_keyword',
-        'contributor': 'contributor_keyword',
-        'date': 'date_keyword',
-        'type': 'type_keyword',
-        'format': 'format_keyword',
-        'identifier': 'identifier_keyword',
-        'source': 'source_keyword',
-        'language': 'language_keyword',
-        'relation': 'relation_keyword',
-        'coverage': 'coverage_keyword',
-        'rights': 'rights_keyword'
-    }
 
     logging.info('--- STARTING SCHEDULED RUN ---')
     logging.info('                              ')
