@@ -18,7 +18,7 @@ This is a collection of wrapper scripts for easy setup and use of both sides (so
    ```bash
    pip3 install -r rs_oaipmh_dest_requirements.txt
    ```
-4. Setup a TinyDB instance (usually local) according to the [schema](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/TinyDB-Schema) and a Solr 4.10 index (usually remote).
+4. Setup a TinyDB instance (usually local) according to the [schema](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Table-Schemas#rs_oaipmh_destpy) and a Solr 4.10 index (usually remote).
 5. Create a `cron` job to schedule the script for execution.
 
 ## Usage
@@ -36,7 +36,7 @@ python3 rs_oaipmh_src.py single --help
 
 #### `multi`
 
-Creates, modifies, deletes, or otherwise updates ResourceSync documents for **multi**ple (one or more) sets of metadata records.  Parameters are specified in a CSV file that is passed to the program (use the example file in this repository as a template). For details, run:
+Creates, modifies, deletes, or otherwise updates ResourceSync documents for **multi**ple (one or more) sets of metadata records.  Parameters are specified in a CSV file that is passed to the program (use the example file in this repository as a template, according to [this schema](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Table-Schemas#rs_oaipmh_srcpy)). For details, run:
 ```bash
 python3 rs_oaipmh_src.py multi --help
 ```
