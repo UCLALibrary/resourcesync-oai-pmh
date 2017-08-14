@@ -23,7 +23,34 @@ This is a collection of wrapper scripts for easy setup and use of both sides (so
 
 ## Usage
 
-See the [wiki](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki) for recipes.
+### rs_oaipmh_src.py
+
+This script has two sub-commands:
+
+#### `single`
+
+Creates, modifies, deletes, or otherwise updates ResourceSync documents for a **single** set of metadata records. Parameters are specified on the command line. For details, run:
+```bash
+python3 rs_oaipmh_src.py single --help
+```
+
+#### `multi`
+
+Creates, modifies, deletes, or otherwise updates ResourceSync documents for **multi**ple (one or more) sets of metadata records.  Parameters are specified in a CSV file that is passed to the program (use the example file in this repository as a template). For details, run:
+```bash
+python3 rs_oaipmh_src.py multi --help
+```
+
+### rs_oaipmh_dest.py
+
+For detailed usage instructions, run:
+```bash
+python3 rs_oaipmh_dest.py --help
+```
+
+### Examples
+
+See the [wiki](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki).
 
 ## Tests
 
