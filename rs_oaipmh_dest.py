@@ -1,12 +1,13 @@
 #!/usr/bin/python3
 
-# rs-oaipmh-dest.py
+# rs_oaipmh_dest.py
 #
 # This script is to be run on the ResourceSync destination server.
 # It does two main things: 
 # - Synchronize our local copy of each collection with updates from member institutions.
 # - Propagate these changes to Solr
 
+import os
 import re
 import pysolr
 import collections
@@ -19,15 +20,10 @@ import sys
 from dateutil.parser import parse
 from datetime import date
 import validators
+from requests import get
+from json import dumps
 
-def addValuePossiblyDuplicateKey(key, value, dic):
-    if key in dic:
-        if isinstance(dic[key], collections.MutableSequence):
-            dic[key].append(value)
-        else:
-            dic[key] = [dic[key], value]
-    else:
-        dic[key] = value
+noThumbnailExistsUrl = 'http://nothumb.com'
 
 tagNameToColumn = {
     'title': 'title_keyword',
@@ -47,10 +43,28 @@ tagNameToColumn = {
     'rights': 'rights_keyword'
     }
 
-def createSolrDoc(identifier, colname, instname, tags):
+bsFilters = [
+    'identifier',
+    'identifier.thumbnail',
+    re.compile('identifier.*')
+    ]
+
+def addValuePossiblyDuplicateKey(key, value, dic):
+    '''Adds a key-value pair to a dictionary that may already have a value for that key. If that's the case, put both values into a list. This is hos pysolr wants us to represent duplicate fields.'''
+
+    if key in dic:
+        if isinstance(dic[key], collections.MutableSequence):
+            dic[key].append(value)
+        else:
+            dic[key] = [dic[key], value]
+    else:
+        dic[key] = value
+
+def createSolrDoc(identifier, colname, instname, thumbnailurl, tags):
 
     doc = {
         'id': identifier,
+        #'thumbnail_url': thumbnailurl,
         'collectionName': colname,
         'institutionName': instname
     }
@@ -62,7 +76,12 @@ def createSolrDoc(identifier, colname, instname, tags):
         if tag.name is None:
             continue
 
-        name = tagNameToColumn[tag.name]
+        try:
+            name = tagNameToColumn[tag.name]
+        except KeyError as e:
+            # only process Dublin Core fields
+            continue
+
         value = tag.string
 
         addValuePossiblyDuplicateKey(name, value, doc)
@@ -70,9 +89,12 @@ def createSolrDoc(identifier, colname, instname, tags):
         if tag.name == 'date':
             dates = dates | cleanAndNormalizeDate(value)
 
+    logging.debug('Dates: {}'.format(dates))
     for decade in facet_decades(dates):
+        logging.debug(decade)
         addValuePossiblyDuplicateKey('decade', decade, doc)
 
+    logging.debug(dumps(doc, indent=4))
     return doc
 
 def facet_decades(years):
@@ -83,7 +105,7 @@ def facet_decades(years):
     # matches = set(filter(lambda a: a >= 1000, years))
     matches = set(filter(lambda a: a <= currentYear, years))
     if len(matches) == 0:
-        return {}
+        return set()
 
     start = min(matches) // 10 * 10
     end = max(matches) + 1
@@ -139,11 +161,52 @@ def cleanAndNormalizeDate(dateString):
                         # error
                         return {}
 
+def findThumbnailUrl(bs, filters):
+    '''Return the URL of the thumbnail for a Dublin Core record. If none exists, return None.
+    
+    bs - BeautifulSoup representation of the metadata file
+    filters - a list of filters to pass to the find_all function, that denote where a URL might live
+    '''
+
+    for f in filters:
+
+        # search for tags that match the filter (can be regex or string, see https://www.crummy.com/software/BeautifulSoup/bs4/doc/#find-all)
+        tags = bs.find_all(f)
+
+        for tag in tags:
+            possibleUrl = tag.string
+            if validators.url(possibleUrl):
+                # TODO: maybe check path extension before doing get request?
+                r = get(possibleUrl)
+                # TODO: get image types from config
+                m = re.search(re.compile('image/(?:jpeg|tiff|png)'), r.headers['content-type'])
+                if m is not None:
+                    return possibleUrl
+    return None
+
+def getThumbnail(url):
+    '''Puts the thumbnail file to be served up, and returns the URL of that location.'''
+    # TODO: Put thumbnail file somewhere to be served up
+    # https://stackoverflow.com/a/16696317
+    thumbpath = '~/thumbnails/'
+    filename = thumbpath + url.split('/')[-1]
+    r = get(url, stream=True)
+    with open(os.path.expanduser(filename), 'wb') as f:
+        logging.info('Saving thumbnail to "{}"'.format(filename))
+        for chunk in r.iter_content(chunk_size=1024):
+            if chunk:
+                f.write(chunk)
+
+    # TODO: upload to S3?
+    # use boto
+
+    return 'http://example.com/{}'.format(filename)
+
 def main():
 
     logging.basicConfig(
-        level=logging.INFO,
-        filename='rs-oaipmh-dest.log',
+        level=logging.DEBUG,
+        filename='rs_oaipmh_dest.log',
         format='%(asctime)s\t%(levelname)s\t%(message)s',
         datefmt='%m/%d/%Y %I:%M:%S %p'
         )
@@ -178,7 +241,7 @@ def main():
         if row['new'] == True:
 
             # baseline sync
-            command = ['resync', '--baseline', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], row['url_map_from'], row['file_path_map_to']]
+            command = ['resync', '--baseline', '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], row['url_map_from'], row['file_path_map_to']]
             try:
                 actions = subprocess.run(
                     command,
@@ -197,7 +260,7 @@ def main():
         else:
 
             # incremental sync
-            command = ['resync', '--incremental', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], row['file_path_map_to']]
+            command = ['resync', '--incremental', '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], row['file_path_map_to']]
             try:
                 actions = subprocess.run(
                     command,
@@ -231,9 +294,17 @@ def main():
                 if action == b'created:':
 
                     logging.info('Creating Solr document for {}'.format(recordIdentifier))
-                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
+
+                    thumbnailUrl = findThumbnailUrl(soup, bsFilters)
+                    if thumbnailUrl is not None:
+                        thumbnailUrl = getThumbnail(thumbnailUrl)
+                    else:
+                        thumbnailUrl = noThumbnailExistsUrl
+
+                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], thumbnailUrl, tags)
                     try:
                         solr.add([doc])
+                        logging.debug('Thumbnail: {}'.format(thumbnailUrl))
                     except:
                         logging.error('Something went wrong while trying to send data to Solr')
                         '''
@@ -248,7 +319,14 @@ def main():
                 elif action == b'updated:':
 
                     logging.info('Updating Solr document for {}'.format(recordIdentifier))
-                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], tags)
+
+                    thumbnailUrl = findThumbnailUrl(soup, bsFilters)
+                    if thumbnailUrl is not None:
+                        thumbnailUrl = getThumbnail(thumbnailUrl)
+                    else:
+                        thumbnailUrl = noThumbnailExistsUrl
+
+                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], thumbnailUrl, tags)
                     try:
                         solr.add([doc])
                     except:
@@ -264,6 +342,7 @@ def main():
 
                 elif action == b'deleted:':
 
+                    # TODO: delete the associated thumbnail as well
                     logging.info('Deleting Solr document for {}'.format(recordIdentifier))
                     try:
                         solr.delete(id=recordIdentifier)
