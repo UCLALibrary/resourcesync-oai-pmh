@@ -4,13 +4,17 @@ This is a collection of wrapper scripts for easy setup and use of both sides (so
 
 ## Installation
 
-### Source
+Depending on your institution's role in the ResourceSync framework, you'll pick one of the following two sets of setup instructions:
 
-1. Install Python 3.5 or greater.
-2. Download `rs_oaipmh_src.py`.
-3. Install its singular dependency by following the instructions [here](https://github.com/resourcesync/py-resourcesync#installation-from-source) and [here](https://github.com/resourcesync/py-resourcesync#installation).
+### Content provider (source)
 
-### Destination
+1. Set up a server according to [these specifications](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Source-Server-Specs).
+2. Install Python 3.5 or greater and a web server of your choosing (for serving static files).
+3. Download `rs_oaipmh_src.py`.
+4. Install its singular dependency by following the instructions [here](https://github.com/resourcesync/py-resourcesync#installation-from-source) and [here](https://github.com/resourcesync/py-resourcesync#installation).
+5. Generate some ResourceSync documents and serve them up! Get started by visiting the [Usage](https://github.com/UCLALibrary/resourcesync-oai-pmh#rs_oaipmh_srcpy) and [Examples](https://github.com/UCLALibrary/resourcesync-oai-pmh#examples) sections below.
+
+### Content aggregator (destination)
 
 1. Install Python 3.4 or greater and `cron`.
 2. Download `rs_oaipmh_dest.py`.
@@ -56,5 +60,6 @@ See the [wiki](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki).
 
 To run automated tests, do:
 ```bash
-python3 -m unittest discover -s test
+python3 -m unittest discover -s test # unless you're a developer, you shouldn't need to do this
+
 ```
