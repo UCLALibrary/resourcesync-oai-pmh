@@ -3,11 +3,12 @@
 # rs_oaipmh_dest.py
 #
 # This script is to be run on the ResourceSync destination server.
-# It does two main things: 
+# It does two main things:
 # - Synchronize our local copy of each collection with updates from member institutions.
 # - Propagate these changes to Solr
 
 import os
+import pdb
 import re
 import pysolr
 import collections
@@ -22,6 +23,7 @@ from datetime import date
 import validators
 from requests import get
 from json import dumps
+from functools import reduce
 
 noThumbnailExistsUrl = 'http://nothumb.com'
 
@@ -49,8 +51,34 @@ bsFilters = [
     re.compile('identifier.*')
     ]
 
+### regular expressions ###
+
+# 1. used for cleanAndNormalizeDate
+twoDigitMonth = r'(?:0[1-9]|1[0-2])'
+twoDigitDay = r'(?:0[1-9]|[1-2]\d|3[1-2])'
+threeCharMonth = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
+timePattern = r'\d{1,2}[.:]\d{2}(?:[ap]\.?m)?'
+yearPattern = r'[1-9]\d*'
+yearPatternMissingOnes = r'[1-9]\d*[-*?]?'
+yearMonthPattern = r'{}(?:(?:[-/]{})|[-*?])?(?=\D|$)'.format(yearPattern, twoDigitMonth)
+yearRangePattern = r'{}\s*[-/]\s*{}'.format(yearMonthPattern, yearMonthPattern)
+dmyt = r'{}\s+{}\s+{}(?:\.\s+{})?'.format(twoDigitDay, threeCharMonth, yearPattern, timePattern)
+consecutiveYearsPattern = r'{}/\d'.format(yearPattern)
+centuryPattern = r'(?:1st|2nd|3rd|(?:[4-9]|1[0-9]|20)th)\s+[cC](?:entury)?'
+
+# the order of checks is important (try to match yeraRangePattern before yearPatternMissingOnes
+datePattern = r'(?:({})|({})|({})|({})|({}))'.format(centuryPattern, yearRangePattern, dmyt, consecutiveYearsPattern, yearPatternMissingOnes)
+suffixBeforeYear0 = r'BC|B\.C\.|BCE|B\.C\.E\.'
+suffixAfterYear0 = r'AD|A\.D\.|CE|C\.E\.'
+suffixPattern = r'(?:{}|{})'.format(suffixBeforeYear0, suffixAfterYear0)
+finalPattern = r'{}(?:\s+({}))?'.format(datePattern, suffixPattern)
+
+# 2. used for dateMatchToInt
+yearRangeCaptureYearsPattern = r'({})\s*[-/]\s*({})'.format(yearMonthPattern, yearMonthPattern)
+dmytCaptureYearPattern = r'{}\s+{}\s+({})(?:\.\s+{})?'.format(twoDigitDay, threeCharMonth, yearPattern, timePattern)
+
 def addValuePossiblyDuplicateKey(key, value, dic):
-    '''Adds a key-value pair to a dictionary that may already have a value for that key. If that's the case, put both values into a list. This is hos pysolr wants us to represent duplicate fields.'''
+    '''Adds a key-value pair to a dictionary that may already have a value for that key. If that's the case, put both values into a list. This is how pysolr wants us to represent duplicate fields.'''
 
     if key in dic:
         if isinstance(dic[key], collections.MutableSequence):
@@ -61,6 +89,7 @@ def addValuePossiblyDuplicateKey(key, value, dic):
         dic[key] = value
 
 def createSolrDoc(identifier, colname, instname, thumbnailurl, tags):
+    '''Maps a Dublin Core record to a Solr document to be indexed.'''
 
     doc = {
         'id': identifier,
@@ -89,9 +118,12 @@ def createSolrDoc(identifier, colname, instname, thumbnailurl, tags):
         if tag.name == 'date':
             dates = dates | cleanAndNormalizeDate(value)
 
+    decades = facet_decades(dates)
+
     logging.debug('Dates: {}'.format(dates))
-    for decade in facet_decades(dates):
-        logging.debug(decade)
+    logging.debug('Decades: {}'.format(decades))
+
+    for decade in decades:
         addValuePossiblyDuplicateKey('decade', decade, doc)
 
     logging.debug(dumps(doc, indent=4))
@@ -111,6 +143,54 @@ def facet_decades(years):
     end = max(matches) + 1
     return set(range(start, end, 10))
 
+def resolveUnknownOnes(i):
+    '''i is a string that represents a year with a possibly missing ones value.'''
+    m = re.compile('(\d{4})').match(i)
+    if m is not None:
+        return int(m.group(1))
+    else:
+        m = re.compile('(\d{1,3})[-*?]').match(i)
+        return i if m is None else int(m.group(1) + '0')
+
+def dateMatchToInt(m):
+    try:
+        if m[0] != '':
+            # century
+            century = int(re.match(re.compile('\d+'), m[0]).group(0))
+            years = {100 * (century - 1), 100 * (century - 1) + 99}
+        elif m[1] != '':
+            # year range
+            years = {int(resolveUnknownOnes(y.strip())) for y in re.sub(yearRangeCaptureYearsPattern, r'\1>|<\2', m[1]).split('>|<')}
+        elif m[2] != '':
+            # dmyt
+            years = {int(resolveUnknownOnes(re.sub(dmytCaptureYearPattern, r'\1', m[2]).strip()))}
+        elif m[3] != '':
+            # consecutive years
+            # TODO: remove
+            a = m[3].split('/')
+            prefix = a[0][:-1]
+            years = reduce(lambda x, y: x | {int('{}{}'.format(prefix, y))}, a[1:], {int(a[0])})
+        elif m[4] != '':
+            # year
+            years = {int(resolveUnknownOnes(m[4]))}
+        else:
+            # error
+            raise Error
+    except ValueError as e:
+        logging.error(e)
+
+
+    if m[5] != '' and re.compile(suffixBeforeYear0).match(m[5]) is not None:
+        # convert years to negatives
+        # if century notation, go further negative
+        if m[0] != '':
+            years = {100 * -century, 100 * -century + 99}
+        else:
+            years = {-x for x in years}
+
+    logging.debug('Mapping match to years: {} -> {}'.format(m, years))
+    return years
+
 def cleanAndNormalizeDate(dateString):
     '''Returns a normalized set of years found in the dateString.'''
 
@@ -124,46 +204,22 @@ def cleanAndNormalizeDate(dateString):
     try:
         return {parse(dateString).year}
 
-    # If not, find as many substrings that look like years as possible
-    # We'll permit the one's place to be unknown
     except ValueError:
-        pattern = re.compile(r'(?<!\d)(\d{3}[-*?0-9])(?!\d)')
-        matches = re.findall(pattern, dateString)
-        
-        if len(matches) > 0:
-            # If the one's place is unknown, just round down to the nearest decade
-            return {int(m) if re.compile('\d{4}').match(m) is not None else int(m[:3] + '0') for m in matches}
-        else:
-            # search for years of length three
-            pattern = re.compile(r'(?<!\d)(\d{2}[-*?0-9])(?!\d)')
-            matches = re.findall(pattern, dateString)
-            
+        # If not, find as many substrings that look like years as possible
+        try:
+            # strip alphabetical chars and spaces from the left side and try again
+            return {parse(dateString.lstrip('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ')).year}
+        except ValueError:
+            matches = re.findall(re.compile(finalPattern), dateString)
+            logging.debug('{} date string matches found in "{}"'.format(len(matches), dateString))
             if len(matches) > 0:
-                # If the one's place is unknown, just round down to the nearest decade
-                return {int(m) if re.compile('\d{3}').match(m) is not None else int(m[:2] + '0') for m in matches}
+                return reduce(lambda x, y: x | y, [dateMatchToInt(m) for m in matches], set())
             else:
-                # search for patterns of length two
-                pattern = re.compile(r'(?<!\d)(\d[-*?0-9])(?!\d)')
-                matches = re.findall(pattern, dateString)
-                
-                if len(matches) > 0:
-                    # If the one's place is unknown, just round down to the nearest decade
-                    return {int(m) if re.compile('\d{2}').match(m) is not None else int(m[:1] + '0') for m in matches}
-                else:
-                    # search for years of length one
-                    pattern = re.compile(r'(?<!\d)(\d)(?!\d)')
-                    matches = re.findall(pattern, dateString)
-                    
-                    if len(matches) > 0:
-                        # If the one's place is unknown, just round down to the nearest decade
-                        return {int(m) for m in matches}
-                    else:
-                        # error
-                        return {}
+                return set()
 
 def findThumbnailUrl(bs, filters):
     '''Return the URL of the thumbnail for a Dublin Core record. If none exists, return None.
-    
+
     bs - BeautifulSoup representation of the metadata file
     filters - a list of filters to pass to the find_all function, that denote where a URL might live
     '''
@@ -185,7 +241,7 @@ def findThumbnailUrl(bs, filters):
     return None
 
 def getThumbnail(url):
-    '''Puts the thumbnail file to be served up, and returns the URL of that location.'''
+    '''Puts the thumbnail file in its place on the image server, and returns its URL.'''
     # TODO: Put thumbnail file somewhere to be served up
     # https://stackoverflow.com/a/16696317
     thumbpath = '~/thumbnails/'
