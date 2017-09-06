@@ -10,9 +10,10 @@ Depending on your institution's role in the ResourceSync framework, you'll pick 
 
 1. Set up a server according to [these specifications](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Source-Server-Specs).
 2. Install Python 3.5 or greater and a web server of your choosing (for serving static files).
-3. Download `rs_oaipmh_src.py`.
-4. Install its singular dependency by following the instructions [here](https://github.com/resourcesync/py-resourcesync#installation-from-source) and [here](https://github.com/resourcesync/py-resourcesync#installation).
-5. Generate some ResourceSync documents and serve them up! Get started by visiting the [Usage](https://github.com/UCLALibrary/resourcesync-oai-pmh#rs_oaipmh_srcpy) and [Examples](https://github.com/UCLALibrary/resourcesync-oai-pmh#examples) sections below.
+3. Download `rs_oaipmh_src.py`, `rs_oaipmh_src.ini`, and `rs_oaipmh_src_logging.ini`.
+4. Install dependencies by following the instructions [here](https://github.com/resourcesync/py-resourcesync#installation-from-source) and [here](https://github.com/resourcesync/py-resourcesync#installation).
+5. Edit `rs_oaipmh_src.ini` to point to the path of `rs_oaipmh_src_logging.ini`, and edit `rs_oaipmh_src_logging.ini` to point to the path of the output file to log to. NOTE: you may need to run the Python script with elevated privileges, so be careful with paths that include `~`!
+6. Generate some ResourceSync documents and serve them up! Get started by visiting the [Usage](https://github.com/UCLALibrary/resourcesync-oai-pmh#rs_oaipmh_srcpy) and [Examples](https://github.com/UCLALibrary/resourcesync-oai-pmh#examples) sections below.
 
 ### Content aggregator (destination)
 
