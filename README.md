@@ -6,11 +6,11 @@ Depending on your institution's role in the ResourceSync framework, you'll use o
 
 ## Content provider (source)
 
-If your institution will be providing metadata records for PRRLA, follow the instructions for the [source](source/README.md) module.
+If your institution will be providing metadata records for PRRLA, follow the instructions for the [source](resourcesync_oai_pmh/source) module.
 
 ## Content aggregator (destination)
 
-If your institution will be aggregating metadata records for PRRLA, follow the instructions for the [destination](destination/README.md) module.
+If your institution will be aggregating metadata records for PRRLA, follow the instructions for the [destination](resourcesync_oai_pmh/destination) module.
 
 ## Tests
 
