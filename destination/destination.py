@@ -1,20 +1,5 @@
 #!/usr/bin/python3
 
-# rs_oaipmh_dest.py
-#
-# This script is to be run on the ResourceSync destination server.
-# It does two main things:
-# - Synchronize our local copy of each collection with updates from member institutions.
-# - Propagate these changes to Solr
-#
-# Usage:
-#
-#   python3 rs_oaipmh_dest.py
-#
-#     or
-#
-#   ./rs_oaipmh_dest.py
-
 import boto3
 from bs4 import BeautifulSoup
 import collections
@@ -41,7 +26,7 @@ class ResourceSyncOAIPMHDestination:
 '''
 
 config = ConfigParser()
-config.read('resourcesync-oai-pmh/rs_oaipmh_dest.ini')
+config.read('destination.ini')
 
 logging.config.fileConfig(os.path.abspath(os.path.expanduser(config['Logging']['config'])))
 

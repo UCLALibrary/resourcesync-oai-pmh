@@ -1,6 +1,4 @@
 #!/usr/bin/python3
-#
-# rs_oaipmh_src.py
 
 import argparse
 from configparser import ConfigParser
@@ -14,7 +12,7 @@ from resourcesync.generators.oaipmh_generator import OAIPMHGenerator
 def main():
 
     config = ConfigParser()
-    config.read('rs_oaipmh_src.ini')
+    config.read('source.ini')
 
     parser = argparse.ArgumentParser(description='Generate sitemaps for a ResourceSync source server.')
     subparsers = parser.add_subparsers(title='commands', metavar='COMMAND', description='Each command specifies a different mode for generating sitemaps. For detailed usage instructions, run `python3 rs_oaipmh_src.py COMMAND -h`.')
