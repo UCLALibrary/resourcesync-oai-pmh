@@ -23,8 +23,9 @@ Depending on your institution's role in the ResourceSync framework, you'll pick 
    ```bash
    pip3 install -r rs_oaipmh_dest_requirements.txt
    ```
-4. Setup a TinyDB instance (usually local) according to the [schema](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Table-Schemas#rs_oaipmh_destpy) and a Solr 4.10 index (usually remote).
-5. Create a `cron` job to schedule the script for execution.
+4. Edit `rs_oaipmh_dest.ini` with the correct values for each key, and edit `rs_oaipmh_dest_logging.ini` to point to the path of the output file to log to.
+5. Setup a TinyDB instance (usually local) according to the [schema](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Table-Schemas#rs_oaipmh_destpy) and a Solr 4.10 index (usually remote).
+6. Create a `cron` job to schedule the script for execution.
 
 ## Usage
 
@@ -48,9 +49,8 @@ python3 rs_oaipmh_src.py multi --help
 
 ### rs_oaipmh_dest.py
 
-For detailed usage instructions, run:
 ```bash
-python3 rs_oaipmh_dest.py --help
+python3 rs_oaipmh_dest.py
 ```
 
 ### Examples

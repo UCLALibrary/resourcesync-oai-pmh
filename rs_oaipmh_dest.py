@@ -6,15 +6,25 @@
 # It does two main things:
 # - Synchronize our local copy of each collection with updates from member institutions.
 # - Propagate these changes to Solr
+#
+# Usage:
+#
+#   python3 rs_oaipmh_dest.py
+#
+#     or
+#
+#   ./rs_oaipmh_dest.py
 
-import argparse
+import boto3
 from bs4 import BeautifulSoup
 import collections
+from configparser import ConfigParser
 from datetime import date
 from dateutil.parser import parse
 from functools import reduce
 from json import dumps
 import logging
+import logging.config
 import os
 import pysolr
 import re
@@ -24,8 +34,20 @@ import sys
 from tinydb import TinyDB, Query
 import validators
 
-# URL of the default "No thumbnail available" thumbnail
-noThumbnailExistsUrl = 'http://nothumb.com'
+'''
+# TODO: move everything inside class
+class ResourceSyncOAIPMHDestination:
+    pass
+'''
+
+config = ConfigParser()
+config.read('resourcesync-oai-pmh/rs_oaipmh_dest.ini')
+
+logging.config.fileConfig(os.path.abspath(os.path.expanduser(config['Logging']['config'])))
+
+logger = logging.getLogger('root')
+
+s3 = boto3.Session(profile_name=config['S3']['profile_name']).client('s3')
 
 # map from DC tag name to Solr field name
 tagNameToColumn = {
@@ -109,7 +131,6 @@ regexes['substitution']['dd-mon-year-time'] = r'{}\s+{}\s+({})(?:\.\s+{})?'.form
     regexes['match']['year'],
     regexes['match']['time'])
 
-
 def addValuePossiblyDuplicateKey(key, value, dic):
     '''Adds a key-value pair to a dictionary that may already have a value for that key. If that's the case, put both values into a list. This is how pysolr wants us to represent duplicate fields.'''
 
@@ -156,9 +177,7 @@ def createSolrDoc(identifier, colname, instname, thumbnailurl, tags):
     for decade in decades:
         addValuePossiblyDuplicateKey('decade', decade, doc)
 
-    logging.debug('Dates: {}'.format(years))
-    logging.debug('Decades: {}'.format(decades))
-    logging.debug(dumps(doc, indent=4))
+    logger.debug('years "{}" -> decades "{}"'.format(years, decades))
 
     return doc
 
@@ -221,7 +240,7 @@ def dateMatchToInt(m):
             # error
             raise Error
     except ValueError as e:
-        logging.error('An error occurred while trying to match "{}": {}'.format(m, e))
+        logger.error('An error occurred while trying to match "{}": {}'.format(m, e))
 
     if m[5] != '' and re.compile(regexes['match']['suffix-bce']).match(m[5]) is not None:
         # move everything to the left side of year 0 on the timeline
@@ -230,7 +249,7 @@ def dateMatchToInt(m):
         else:
             years = {-x for x in years}
 
-    logging.debug('Mapping match to years: {} -> {}'.format(m, years))
+    logger.debug('Mapping match to years: {} -> {}'.format(m, years))
     return years
 
 
@@ -248,7 +267,7 @@ def cleanAndNormalizeDate(dateString):
         except ValueError:
             # find as many substrings that look like years as possible
             matches = re.findall(re.compile(regexes['match']['date']), dateString)
-            logging.debug('{} date string matches found in "{}"'.format(len(matches), dateString))
+            logger.debug('{} date string matches found in "{}"'.format(len(matches), dateString))
             if len(matches) > 0:
                 return reduce(lambda x, y: x | y, [dateMatchToInt(m) for m in matches], set())
             else:
@@ -279,57 +298,64 @@ def findThumbnailUrl(bs, filters):
     return None
 
 
-def getThumbnail(url):
+def getThumbnail(url, recordIdentifier):
     '''Puts the thumbnail file in its place on the image server, and returns its URL.'''
 
-    # TODO: Put thumbnail file somewhere to be served up
+    basename = url.split('/')[-1]
+    extension = os.path.splitext(basename)[1]
+    s3Key = recordIdentifier + extension
+
+    filepath = os.path.join(
+        os.path.abspath(os.path.expanduser(config['S3']['thumbnail-dir'])),
+        s3Key
+        )
+    logger.debug('thumbnail path: {}'.format(filepath))
+
     # https://stackoverflow.com/a/16696317
-    thumbpath = '~/thumbnails/'
-    filename = thumbpath + url.split('/')[-1]
     r = get(url, stream=True)
-    with open(os.path.expanduser(filename), 'wb') as f:
-        logging.info('Saving thumbnail to "{}"'.format(filename))
+    with open(filepath, 'wb') as f:
+        logger.info('Saving thumbnail to "{}"'.format(filepath))
         for chunk in r.iter_content(chunk_size=1024):
             if chunk:
                 f.write(chunk)
 
-    # TODO: upload to S3 with boto
+    # upload to S3
+    s3.put_object(Bucket=config['S3']['bucket'], Key=s3Key, Body=open(filepath, 'rb'))
 
-    return 'http://example.com/{}'.format(filename)
+    # return URL of image
+    return s3.generate_presigned_url(
+        ClientMethod='get_object',
+        Params={
+            'Bucket': config['S3']['bucket'],
+            'Key': s3Key
+        })
+    #return 'http://example.com'
 
 
 def main():
 
-    logging.basicConfig(
-        level=logging.DEBUG,
-        filename='rs_oaipmh_dest.log',
-        format='%(asctime)s\t%(levelname)s\t%(message)s',
-        datefmt='%m/%d/%Y %I:%M:%S %p'
-        )
+    logger.info('--- STARTING SCHEDULED RUN ---')
+    logger.info('                              ')
 
-    parser = argparse.ArgumentParser(description='Synchronize our local copy with updates from member institutions.')
-    parser.add_argument('tinydb', metavar='TINYDB', nargs=1, help='Path to the local TinyDB instance.')
-    parser.add_argument('solrUrl', metavar='SOLR', nargs=1, help='Base URL of Solr index.')
-    args = parser.parse_args()
-
-    logging.info('--- STARTING SCHEDULED RUN ---')
-    logging.info('                              ')
+    solrUrl = config['Solr']['url']
+    tinydbPath = os.path.abspath(os.path.expanduser(config['TinyDB']['path']))
 
     # make sure URL is well-formed
-    if not validators.url(args.solrUrl[0]):
-        logging.critical('Invalid command line argument: {} is not a valid URL'.format(args.solrUrl[0]))
+    if not validators.url(solrUrl):
+        logger.critical('{} is not a valid URL'.format(solrUrl))
         exit(1)
 
     try:
         # throws exception if the file doesn't exist
-        with open(args.tinydb[0], 'r') as f:
+        with open(tinydbPath, 'r') as f:
             pass
     except:
-        logging.critical('Invalid command line argument: {} does not exist'.format(args.tinydb[0]))
+        logger.critical('{} does not exist'.format(tinydbPath))
         exit(1)
 
-    solr = pysolr.Solr(args.solrUrl[0])
-    db = TinyDB(args.tinydb[0])
+    solr = pysolr.Solr(solrUrl)
+    db = TinyDB(tinydbPath)
+
     for row in db:
 
         Row = Query()
@@ -339,15 +365,13 @@ def main():
             # baseline sync
             command = ['resync', '--baseline', '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], row['url_map_from'], row['file_path_map_to']]
             try:
-                actions = subprocess.run(
+                actions = subprocess.check_output(
                     command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    check=True
+                    stderr=subprocess.STDOUT
                     )
             except subprocess.CalledProcessError as e:
-                logging.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
-                logging.error(e)
+                logger.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
+                logger.error(e)
                 continue
 
             # set row.new = False
@@ -358,18 +382,16 @@ def main():
             # incremental sync
             command = ['resync', '--incremental', '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], row['file_path_map_to']]
             try:
-                actions = subprocess.run(
+                actions = subprocess.check_output(
                     command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    check=True
+                    stderr=subprocess.STDOUT
                     )
             except subprocess.CalledProcessError as e:
-                logging.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
-                logging.error(e)
+                logger.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
+                logger.error(e)
                 continue
 
-        for line in actions.stdout.splitlines():
+        for line in actions.splitlines():
 
             '''
             # TODO: fault tolerance
@@ -380,7 +402,7 @@ def main():
             if action in [b'created:', b'updated:', b'deleted:']:
 
                 localFile = line.split(b' -> ')[1]
-                logging.debug('Cenerating Solr document from records in "{}"'.format(localFile))
+                logger.debug('Cenerating Solr document from records in "{}"'.format(localFile))
 
                 with open(localFile) as fp:
                     soup = BeautifulSoup(fp, 'xml')
@@ -389,20 +411,26 @@ def main():
 
                 if action == b'created:':
 
-                    logging.info('Creating Solr document for {}'.format(recordIdentifier))
+                    logger.info('Creating Solr document for {}'.format(recordIdentifier))
 
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
                     if thumbnailUrl is not None:
-                        thumbnailUrl = getThumbnail(thumbnailUrl)
+                        thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
                     else:
-                        thumbnailUrl = noThumbnailExistsUrl
+                        thumbnailUrl = s3.generate_presigned_url(
+                            ClientMethod='get_object',
+                            Params={
+                                'Bucket': config['S3']['bucket'],
+                                'Key': config['S3']['default-thumbnail-key']
+                            })
 
                     doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], thumbnailUrl, tags)
+                    logger.debug('Sending to Solr: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
-                        logging.debug('Thumbnail: {}'.format(thumbnailUrl))
+                        logger.debug('Thumbnail: {}'.format(thumbnailUrl))
                     except:
-                        logging.error('Something went wrong while trying to send data to Solr')
+                        logger.error('Something went wrong while trying to send data to Solr')
                         '''
                         # TODO: fault tolerance
                         failures.push({
@@ -414,19 +442,25 @@ def main():
 
                 elif action == b'updated:':
 
-                    logging.info('Updating Solr document for {}'.format(recordIdentifier))
+                    logger.info('Updating Solr document for {}'.format(recordIdentifier))
 
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
                     if thumbnailUrl is not None:
-                        thumbnailUrl = getThumbnail(thumbnailUrl)
+                        thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
                     else:
-                        thumbnailUrl = noThumbnailExistsUrl
+                        thumbnailUrl = s3.generate_presigned_url(
+                            ClientMethod='get_object',
+                            Params={
+                                'Bucket': config['S3']['bucket'],
+                                'Key': config['S3']['default-thumbnail-key']
+                            })
 
                     doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], thumbnailUrl, tags)
+                    logger.debug('Sending to Solr: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
                     except:
-                        logging.error('Something went wrong while trying to send data to Solr')
+                        logger.error('Something went wrong while trying to send data to Solr')
                         '''
                         # TODO: fault tolerance
                         failures.push({
@@ -439,11 +473,11 @@ def main():
                 elif action == b'deleted:':
 
                     # TODO: delete the associated thumbnail as well
-                    logging.info('Deleting Solr document for {}'.format(recordIdentifier))
+                    logger.info('Deleting Solr document for {}'.format(recordIdentifier))
                     try:
                         solr.delete(id=recordIdentifier)
                     except:
-                        logging.error('Something went wrong while trying to send data to Solr')
+                        logger.error('Something went wrong while trying to send data to Solr')
                         '''
                         # TODO: fault tolerance
                         failures.push({
@@ -460,8 +494,8 @@ def main():
         # TODO: consider the case where a document is added/updated/deleted from Solr after it fails. Do we do a check each time we do some action to see if it exists in a _failures property?
         '''
 
-    logging.info('                              ')
-    logging.info('---  ENDING SCHEDULED RUN  ---\n')
+    logger.info('                              ')
+    logger.info('---  ENDING SCHEDULED RUN  ---\n')
 
 if __name__ == '__main__':
     main()
