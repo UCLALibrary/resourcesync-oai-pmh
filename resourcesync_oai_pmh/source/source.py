@@ -11,9 +11,6 @@ from resourcesync.generators.oaipmh_generator import OAIPMHGenerator
 
 def main():
 
-    config = ConfigParser()
-    config.read('source.ini')
-
     parser = argparse.ArgumentParser(description='Generate sitemaps for a ResourceSync source server.')
     subparsers = parser.add_subparsers(title='commands', metavar='COMMAND', description='Each command specifies a different mode for generating sitemaps. For detailed usage instructions, run `python3 rs_oaipmh_src.py COMMAND -h`.')
 
@@ -36,21 +33,33 @@ def main():
     parser_a.add_argument('strategy', metavar='<strategy>', choices=['resourcelist', 'new_changelist', 'inc_changelist'], help='"resourcelist", "new_changelist", or "inc_changelist"')
     parser_a.add_argument('collection-name', metavar='<collection-name>', help='name of the collection of resources to generate capability documents for')
 
-
     ### Subcommand - multiple sitemaps
     parser_b = subparsers.add_parser('multi', description='Generate multiple sitemaps by specifying parameters as rows in a CSV.', help='generate multiple sitemaps')
     parser_b.set_defaults(command='multi')
-    parser_b.add_argument('config-file', metavar='<config-file>', help='path to config file containing information for each collection to process')
+    parser_b.add_argument('collections-csv', metavar='<collections-csv>', help='path to file containing information for each collection to process')
 
 
     args = vars(parser.parse_args())
 
 
-    logging.config.fileConfig(os.path.abspath(os.path.expanduser(config['Logging']['config'])))
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    '''
+    # not currently being used
+    config_path = os.path.join(base_dir, 'source.ini')
+    config = ConfigParser()
+    config.read(config_path)
+    '''
+    logging_config_path = os.path.join(base_dir, 'source_logging.ini')
+    logging_config = ConfigParser()
+    logging_config.read(logging_config_path)
 
+    logging.config.fileConfig(logging_config_path)
     logger = logging.getLogger('root')
+
     logger.info('--- STARTING RUN ---')
     logger.info('')
+    logger.info('Logging to {}'.format(os.path.abspath(os.path.expanduser(logging_config['DEFAULT']['logfile_path']))))
+
     logger.debug('Program arguments:')
     logger.debug('')
 
@@ -81,7 +90,7 @@ def main():
 
     elif args['command'] == 'multi':
         try:
-            with open(args['config-file'], 'r') as f:
+            with open(args['collections-csv'], 'r') as f:
                 csvreader = csv.DictReader(f, delimiter=',', quotechar='|')
                 try:
                     for row in csvreader:
@@ -101,10 +110,10 @@ def main():
 
                         collections.append(collection)
                 except csv.Error as e:
-                    logger.critical('File {}, line {}: {}'.format(args['config-file'], reader.line_num, e))
+                    logger.critical('File {}, line {}: {}'.format(args['collections-csv'], reader.line_num, e))
                     exit(1)
         except:
-            logger.critical('Invalid command line argument: {} does not exist'.format(args['config-file']))
+            logger.critical('Invalid command line argument: {} does not exist'.format(args['collections-csv']))
             exit(1)
 
     logger.debug('Collection-specific parameters:')
@@ -132,6 +141,7 @@ def main():
                                   resource_dir='{}/{}'.format(collection['document_root'], collection['resource_dir']),
                                   metadata_dir=collection['metadata_dir'],
                                   description_dir=collection['document_root'],
+                                  document_root=collection['document_root'],
                                   url_prefix='{}/{}'.format(collection['resourcesync_url'], collection['resource_dir']),
                                   is_saving_sitemaps=True)
                 rs.execute()
@@ -141,7 +151,7 @@ def main():
                     collection['collection_name'],
                     e))
 
-    logger.info('                              ')
+    logger.info('')
     logger.info('---  ENDING RUN  ---')
 
 if __name__ == '__main__':
