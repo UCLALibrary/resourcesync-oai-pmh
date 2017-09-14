@@ -1,6 +1,6 @@
 # resourcesync-oai-pmh
 
-**NOTE: THIS REPOSITORY IS CURRENTLY UNDER HEAVY DEVELOPMENT! PLEASE ONLY USE CODE ON THE `master` BRANCH!**
+**NOTE: THIS REPOSITORY IS CURRENTLY UNDER HEAVY DEVELOPMENT! PLEASE CHECK FOR UPDATES REGULARLY, AND PLEASE ONLY USE CODE ON THE `master` BRANCH!**
 
 This is a collection of wrapper scripts for easy setup and use of both sides (source and destination) of the [ResourceSync web synchronization framework](http://www.openarchives.org/rs/resourcesync) with existing [OAI-PMH](https://www.openarchives.org/pmh/) metadata providers on the source side and a Solr index (in addition to a scheduling server) on the destination side. This solution was developed for UCLA's PRRLA project. For project information, see [our wiki](https://docs.library.ucla.edu/display/dlp/PRRLA+%28Pacific+Rim+Research+Libraries+Alliance%29+Project+Overview) or http://pr-rla.org.
 
