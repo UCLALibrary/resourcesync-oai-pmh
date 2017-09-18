@@ -2,9 +2,9 @@
 
 1. Set up a server according to [these specifications](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Source-Server-Specs).
 2. Install Python 3.5 or greater and a web server of your choosing (for serving static files).
-3. Install dependencies by following the instructions [here](https://github.com/resourcesync/py-resourcesync#installation-from-source) and [here](https://github.com/resourcesync/py-resourcesync#installation).
+3. Install dependencies by following the instructions [here](https://github.com/resourcesync/py-resourcesync#installation-from-source) and [here](https://github.com/resourcesync/py-resourcesync#installation) (NOTE: you may need to install `gcc`, `libgcc`, `libxslt-devel` and `libxml2-devel` on your system).
 4. Download and extract this repository to your system. You'll be using the files in `resourcesync_oai_pmh/source`.
-5. This software should "just work" without requiring any modification of any files, as long as the directory structure remains the same. You may want to modify the value of [DEFAULT]->[logfile_path] in `source_logging.ini`.
+5. This software should "just work" without requiring any modification of any files, as long as the directory structure remains the same. You may want to modify the value of `DEFAULT.logfile_path` in `source_logging.ini`.
 6. Generate some ResourceSync documents and serve them up! Get started by visiting the Usage and Examples sections below.
 
 # Usage
@@ -25,7 +25,7 @@ Creates, modifies, deletes, or otherwise updates ResourceSync documents for **mu
 python3 source.py multi --help
 ```
 
-## Examples
+# Examples
 
 Please read [this wiki page](https://github.com/UCLALibrary/resourcesync-oai-pmh/wik://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Use-Case-Recipes).
 
