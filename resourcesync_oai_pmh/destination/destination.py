@@ -10,6 +10,7 @@ from functools import reduce
 from json import dumps
 import logging
 import logging.config
+from mimetypes import guess_type, guess_extension
 import os
 import pysolr
 import re
@@ -17,6 +18,7 @@ from requests import get
 import subprocess
 import sys
 from tinydb import TinyDB, Query
+import urllib.parse
 import validators
 
 '''
@@ -24,12 +26,17 @@ import validators
 class ResourceSyncOAIPMHDestination:
     pass
 '''
+base_dir = os.path.abspath(os.path.dirname(__file__))
 
+config_path = os.path.join(base_dir, 'destination.ini')
 config = ConfigParser()
-config.read('destination.ini')
+config.read(config_path)
 
-logging.config.fileConfig(os.path.abspath(os.path.expanduser(config['Logging']['config'])))
+logging_config_path = os.path.join(base_dir, 'destination_logging.ini')
+logging_config = ConfigParser()
+logging_config.read(logging_config_path)
 
+logging.config.fileConfig(logging_config_path)
 logger = logging.getLogger('root')
 
 s3 = boto3.Session(profile_name=config['S3']['profile_name']).client('s3')
@@ -128,15 +135,19 @@ def addValuePossiblyDuplicateKey(key, value, dic):
         dic[key] = value
 
 
-def createSolrDoc(identifier, colname, instname, thumbnailurl, tags):
+def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
     '''Maps a Dublin Core record to a Solr document to be indexed.'''
 
     doc = {
         'id': identifier,
-        'thumbnail_url': thumbnailurl,
-        'collectionName': colname,
-        'institutionName': instname
+        'collectionKey': rowInDB['collection_key'],
+        'collectionName': rowInDB['collection_name'],
+        'institutionKey': rowInDB['institution_key'],
+        'institutionName': rowInDB['institution_name']
     }
+    if thumbnailurl is not None:
+        doc['thumbnail_url'] = thumbnailurl
+
     years = set()
 
     for tag in tags:
@@ -145,7 +156,7 @@ def createSolrDoc(identifier, colname, instname, thumbnailurl, tags):
         if tag.name is None:
             continue
 
-        # only process Dublin Core fields
+        # only process Dublin Core fields (no qualified DC)
         try:
             name = tagNameToColumn[tag.name]
         except KeyError as e:
@@ -286,41 +297,48 @@ def findThumbnailUrl(bs, filters):
 def getThumbnail(url, recordIdentifier):
     '''Puts the thumbnail file in its place on the image server, and returns its URL.'''
 
+    r = get(url, stream=True)
+
     basename = url.split('/')[-1]
     extension = os.path.splitext(basename)[1]
-    s3Key = recordIdentifier + extension
+    if extension == '':
+        extension = guess_extension(r.headers['content-type'])
+        if extension is None:
+            # throw error
+            pass
+
+    # need to save the file locally with slashes escaped, and should use the same name for S3 object
+    s3Key = urllib.parse.quote(recordIdentifier, safe='') + extension
+
+    # url to the thumbnail needs to be encoded twice
+    s3KeyDoublyEncoded = urllib.parse.quote(urllib.parse.quote(recordIdentifier, safe='')) + extension
 
     filepath = os.path.join(
-        os.path.abspath(os.path.expanduser(config['S3']['thumbnail-dir'])),
+        os.path.abspath(os.path.expanduser(config['S3']['thumbnail_dir'])),
         s3Key
         )
-    logger.debug('thumbnail path: {}'.format(filepath))
 
     # https://stackoverflow.com/a/16696317
-    r = get(url, stream=True)
     with open(filepath, 'wb') as f:
         logger.info('Saving thumbnail to "{}"'.format(filepath))
         for chunk in r.iter_content(chunk_size=1024):
             if chunk:
                 f.write(chunk)
+    logger.debug('Thumbnail written to {}'.format(filepath))
 
     # upload to S3
-    s3.put_object(Bucket=config['S3']['bucket'], Key=s3Key, Body=open(filepath, 'rb'))
+    s3.put_object(Bucket=config['S3']['bucket'], Key=s3Key, Body=open(filepath, 'rb'), ContentType=guess_type(url)[0])
 
     # return URL of image
-    return s3.generate_presigned_url(
-        ClientMethod='get_object',
-        Params={
-            'Bucket': config['S3']['bucket'],
-            'Key': s3Key
-        })
-    #return 'http://example.com'
+    u = urllib.parse.urlunparse(('http', config['S3']['bucket'], s3KeyDoublyEncoded, '', '', ''))
+    logger.debug('Thumbnail available at {}'.format(u))
+    return u
 
 
 def main():
 
-    logger.info('--- STARTING SCHEDULED RUN ---')
-    logger.info('                              ')
+    logger.info('--- STARTING RUN ---')
+    logger.info('')
 
     solrUrl = config['Solr']['url']
     tinydbPath = os.path.abspath(os.path.expanduser(config['TinyDB']['path']))
@@ -391,7 +409,7 @@ def main():
 
                 with open(localFile) as fp:
                     soup = BeautifulSoup(fp, 'xml')
-                    recordIdentifier = re.sub(r':', '_3A', soup.find('identifier').string)
+                    recordIdentifier = soup.find('identifier').string
                     tags = soup.find('dc').contents
 
                 if action == b'created:':
@@ -401,15 +419,8 @@ def main():
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
                     if thumbnailUrl is not None:
                         thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
-                    else:
-                        thumbnailUrl = s3.generate_presigned_url(
-                            ClientMethod='get_object',
-                            Params={
-                                'Bucket': config['S3']['bucket'],
-                                'Key': config['S3']['default-thumbnail-key']
-                            })
 
-                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], thumbnailUrl, tags)
+                    doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags)
                     logger.debug('Sending to Solr: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
@@ -432,15 +443,8 @@ def main():
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
                     if thumbnailUrl is not None:
                         thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
-                    else:
-                        thumbnailUrl = s3.generate_presigned_url(
-                            ClientMethod='get_object',
-                            Params={
-                                'Bucket': config['S3']['bucket'],
-                                'Key': config['S3']['default-thumbnail-key']
-                            })
 
-                    doc = createSolrDoc(recordIdentifier, row['collection_key'], row['institution_key'], thumbnailUrl, tags)
+                    doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags)
                     logger.debug('Sending to Solr: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
@@ -479,8 +483,8 @@ def main():
         # TODO: consider the case where a document is added/updated/deleted from Solr after it fails. Do we do a check each time we do some action to see if it exists in a _failures property?
         '''
 
-    logger.info('                              ')
-    logger.info('---  ENDING SCHEDULED RUN  ---\n')
+    logger.info('')
+    logger.info('---  ENDING RUN  ---\n')
 
 if __name__ == '__main__':
     main()
