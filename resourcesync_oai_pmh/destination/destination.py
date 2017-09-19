@@ -12,6 +12,7 @@ import logging
 import logging.config
 from mimetypes import guess_type, guess_extension
 import os
+import pathlib
 import pysolr
 import re
 from requests import get
@@ -60,10 +61,10 @@ tagNameToColumn = {
     'rights': 'rights_keyword'
     }
 
-# list of BeautifulSoup filters to pass to the find_all function
+# list of BeautifulSoup filters to pass to the find_all function, in order of priority to check
 bsFilters = [
-    'identifier',
     'identifier.thumbnail',
+    'identifier',
     re.compile('identifier.*')
     ]
 
@@ -277,24 +278,30 @@ def findThumbnailUrl(bs, filters):
     filters - a list of filters to pass to the find_all function, that denote where a URL might live
     '''
 
+    checkedUrls = []
     for f in filters:
+
 
         # search for tags that match the filter (can be regex or string, see )
         tags = bs.find_all(f)
 
         for tag in tags:
             possibleUrl = tag.string
-            if validators.url(possibleUrl):
+            if validators.url(possibleUrl) and possibleUrl not in checkedUrls:
+                logger.debug('Checking for thumbnail at {}'.format(possibleUrl))
                 # TODO: maybe check path extension before doing get request?
                 r = get(possibleUrl)
                 # TODO: get image types from config
                 m = re.search(re.compile('image/(?:jpeg|tiff|png)'), r.headers['content-type'])
+                logger.debug('Match: {}'.format(m))
                 if m is not None:
                     return possibleUrl
+                else:
+                    checkedUrls.append(possibleUrl)
     return None
 
 
-def getThumbnail(url, recordIdentifier):
+def getThumbnail(url, recordIdentifier, rowInDB):
     '''Puts the thumbnail file in its place on the image server, and returns its URL.'''
 
     r = get(url, stream=True)
@@ -315,8 +322,11 @@ def getThumbnail(url, recordIdentifier):
 
     filepath = os.path.join(
         os.path.abspath(os.path.expanduser(config['S3']['thumbnail_dir'])),
+        rowInDB['institution_key'],
+        rowInDB['collection_key'],
         s3Key
         )
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
     # https://stackoverflow.com/a/16696317
     with open(filepath, 'wb') as f:
@@ -347,52 +357,41 @@ def main():
     if not validators.url(solrUrl):
         logger.critical('{} is not a valid URL'.format(solrUrl))
         exit(1)
+    else:
+        solr = pysolr.Solr(solrUrl)
 
+    # make sure database exists
     try:
-        # throws exception if the file doesn't exist
         with open(tinydbPath, 'r') as f:
             pass
+        db = TinyDB(tinydbPath)
+
     except:
         logger.critical('{} does not exist'.format(tinydbPath))
         exit(1)
-
-    solr = pysolr.Solr(solrUrl)
-    db = TinyDB(tinydbPath)
 
     for row in db:
 
         Row = Query()
 
-        if row['new'] == True:
-
-            # baseline sync
-            command = ['resync', '--baseline', '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], row['url_map_from'], row['file_path_map_to']]
-            try:
-                actions = subprocess.check_output(
-                    command,
-                    stderr=subprocess.STDOUT
-                    )
-            except subprocess.CalledProcessError as e:
-                logger.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
-                logger.error(e)
-                continue
-
-            # set row.new = False
-            db.update({'new': False}, Row['collection_key'] == row['collection_key'])
-
+        if row['new'] is True:
+            mode = '--baseline'
         else:
+            mode = '--incremental'
 
-            # incremental sync
-            command = ['resync', '--incremental', '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], row['file_path_map_to']]
-            try:
-                actions = subprocess.check_output(
-                    command,
-                    stderr=subprocess.STDOUT
-                    )
-            except subprocess.CalledProcessError as e:
-                logger.error('Invalid invocation of "resync" with collection {}'.format(row['collection_key']))
-                logger.error(e)
-                continue
+        command = ['resync', mode, '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], os.path.join(row['file_path_map_to'], row['institution_key'], row['collection_key'])]
+
+        try:
+            actions = subprocess.check_output(
+                command,
+                stderr=subprocess.STDOUT
+                )
+            if row['new'] == True:
+                db.update({'new': False}, Row['institution_key'] == row['institution_key'] and Row['collection_key'] == row['collection_key'])
+        except subprocess.CalledProcessError as e:
+            logger.error('Invalid invocation of "resync" with collection {}: {}'.format(row['collection_key'], e))
+            # TODO: note that we should come back to this collection later
+            continue
 
         for line in actions.splitlines():
 
@@ -417,14 +416,16 @@ def main():
                     logger.info('Creating Solr document for {}'.format(recordIdentifier))
 
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
+                    logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
                     if thumbnailUrl is not None:
-                        thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
+                        thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier, row)
+                        logger.debug('Got thumbnail: {}'.format(thumbnailUrl))
 
                     doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags)
-                    logger.debug('Sending to Solr: {}'.format(dumps(doc, indent=4)))
+                    logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
-                        logger.debug('Thumbnail: {}'.format(thumbnailUrl))
+                        logger.debug('Submitted Solr doc!')
                     except:
                         logger.error('Something went wrong while trying to send data to Solr')
                         '''
@@ -441,13 +442,16 @@ def main():
                     logger.info('Updating Solr document for {}'.format(recordIdentifier))
 
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
+                    logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
                     if thumbnailUrl is not None:
                         thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
+                        logger.debug('Got thumbnail: {}'.format(thumbnailUrl))
 
                     doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags)
-                    logger.debug('Sending to Solr: {}'.format(dumps(doc, indent=4)))
+                    logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
+                        logger.debug('Submitted Solr doc!')
                     except:
                         logger.error('Something went wrong while trying to send data to Solr')
                         '''
