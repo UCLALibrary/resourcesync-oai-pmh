@@ -171,19 +171,22 @@ def getThumbnail(url, recordIdentifier, rowInDB):
         extension = guess_extension(r.headers['content-type'])
         if extension is None:
             # throw error
+            logger.error('Cannot determine file type for {}'.format(url))
             pass
 
-    # need to save the file locally with slashes escaped, and should use the same name for S3 object
-    s3Key = urllib.parse.quote(recordIdentifier, safe='') + extension
+    # used as the local filename too
+    # need to save the file locally with slashes escaped
+    s3Key = urllib.parse.quote(recordIdentifier, safe='')
 
     # url to the thumbnail needs to be encoded twice
-    s3KeyDoublyEncoded = urllib.parse.quote(urllib.parse.quote(recordIdentifier, safe='')) + extension
+    s3KeyDoublyEncoded = urllib.parse.quote(s3Key, safe='')
 
+    # should use the same name for S3 object
     filepath = os.path.join(
         os.path.abspath(os.path.expanduser(config['S3']['thumbnail_dir'])),
         rowInDB['institution_key'],
         rowInDB['collection_key'],
-        s3Key
+        s3Key + extension
         )
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
@@ -199,9 +202,9 @@ def getThumbnail(url, recordIdentifier, rowInDB):
     s3.put_object(Bucket=config['S3']['bucket'], Key=s3Key, Body=open(filepath, 'rb'), ContentType=guess_type(url)[0])
 
     # return URL of image
-    u = urllib.parse.urlunparse(('http', config['S3']['bucket'], s3KeyDoublyEncoded, '', '', ''))
-    logger.debug('Thumbnail available at {}'.format(u))
-    return u
+    thumbnailUrl = urllib.parse.urlunparse(('http', config['S3']['bucket'], s3KeyDoublyEncoded, '', '', ''))
+    logger.debug('Thumbnail available at {}'.format(thumbnailUrl))
+    return thumbnailUrl
 
 
 def deleteThumbnail(s3Key):
