@@ -204,6 +204,10 @@ def getThumbnail(url, recordIdentifier, rowInDB):
     return u
 
 
+def deleteThumbnail(s3Key):
+    s3.delete_object(Bucket=config['S3']['bucket'], Key=s3Key)
+
+
 def main():
 
     logger.info('--- STARTING RUN ---')
@@ -332,6 +336,8 @@ def main():
 
                     # TODO: delete the associated thumbnail as well
                     logger.info('Deleting Solr document for {}'.format(recordIdentifier))
+                    deleteThumbnail(recordIdentifier)
+
                     try:
                         solr.delete(id=recordIdentifier)
                     except:
