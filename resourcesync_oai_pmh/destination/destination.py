@@ -260,12 +260,18 @@ def main():
             if action in [b'created:', b'updated:', b'deleted:']:
 
                 localFile = line.split(b' -> ')[1]
-                logger.debug('Cenerating Solr document from records in "{}"'.format(localFile))
 
                 with open(localFile) as fp:
                     soup = BeautifulSoup(fp, 'xml')
-                    recordIdentifier = soup.find('identifier').string
-                    tags = soup.find('dc').contents
+
+                    try:
+                        # if deleted, skip to next record
+                        if soup.find('header')['status'] == 'deleted':
+                            continue
+                    except KeyError:
+                        logger.debug('Cenerating Solr document from records in "{}"'.format(localFile))
+                        recordIdentifier = soup.find('identifier').string
+                        tags = soup.find('dc').contents
 
                 if action == b'created:':
 
