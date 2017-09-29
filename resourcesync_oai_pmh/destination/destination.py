@@ -104,8 +104,8 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
         if tag.name is None:
             continue
 
-        # only process Dublin Core fields (no qualified DC)
         try:
+            # only process Dublin Core fields (no qualified DC)
             name = tagNameToColumn[tag.name]
         except KeyError as e:
             continue
@@ -116,6 +116,8 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
             # build up a set of all the years included in the metadata
             if name == tagNameToColumn['date']:
                 years.add(value)
+            elif name == tagNameToColumn['title'] and 'first_title' not in doc:
+                doc['first_title'] = value
 
     if len(years) > 0:
         decades = DateCleanerAndFaceter(years).decades()
@@ -123,6 +125,7 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
             addValuePossiblyDuplicateKey('decade', decade, doc)
         logger.debug('years "{}" -> decades "{}"'.format(years, decades))
 
+        doc['sort_decade'] = min(decades, key=lambda x: int(x))
 
     return doc
 
