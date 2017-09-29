@@ -22,6 +22,8 @@ from tinydb import TinyDB, Query
 import urllib.parse
 import validators
 
+from util import DateCleanerAndFaceter
+
 '''
 # TODO: move everything inside class
 class ResourceSyncOAIPMHDestination:
@@ -68,61 +70,6 @@ bsFilters = [
     re.compile('identifier.*')
     ]
 
-# regular expressions used for matching non-standard date formats
-regexes = {
-    'match': {},
-    'substitution': {}
-    }
-regexes['match']['mm'] = r'(?:0[1-9]|1[0-2])'
-regexes['match']['dd'] = r'(?:0[1-9]|[1-2]\d|3[1-2])'
-regexes['match']['mon'] = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
-regexes['match']['time'] = r'\d{1,2}[.:]\d{2}(?:[ap]\.?m)?'
-regexes['match']['year'] = r'[1-9]\d*'
-regexes['match']['year?'] = r'[1-9]\d*[-*?]?'
-regexes['match']['year-mm'] = r'{}(?:(?:[-/]{})|[-*?])?(?=\D|$)'.format(
-    regexes['match']['year'],
-    regexes['match']['mm'])
-
-regexes['match']['year-year'] = r'{}\s*[-/]\s*{}'.format(
-    regexes['match']['year-mm'],
-    regexes['match']['year-mm'])
-
-regexes['match']['dd-mon-year-time'] = r'{}\s+{}\s+{}(?:\.\s+{})?'.format(
-    regexes['match']['dd'],
-    regexes['match']['mon'],
-    regexes['match']['year'],
-    regexes['match']['time'])
-
-regexes['match']['year/m'] = r'{}/\d'.format(regexes['match']['year'])
-regexes['match']['century'] = r'(?:1st|2nd|3rd|(?:[4-9]|1[0-9]|20)th)\s+[cC](?:entury)?'
-
-# order of alternate patterns is important
-regexes['match']['alternator'] = r'(?:({})|({})|({})|({})|({}))'.format(
-    regexes['match']['century'],
-    regexes['match']['year-year'],
-    regexes['match']['dd-mon-year-time'],
-    regexes['match']['year/m'],
-    regexes['match']['year?'])
-
-regexes['match']['suffix-bce'] = r'BC|B\.C\.|BCE|B\.C\.E\.'
-regexes['match']['suffix-ce']= r'AD|A\.D\.|CE|C\.E\.'
-regexes['match']['suffix'] = r'(?:{}|{})'.format(
-    regexes['match']['suffix-bce'],
-    regexes['match']['suffix-ce'])
-
-regexes['match']['date'] = r'{}(?:\s+({}))?'.format(
-    regexes['match']['alternator'],
-    regexes['match']['suffix'])
-
-regexes['substitution']['year-year'] = r'({})\s*[-/]\s*({})'.format(
-    regexes['match']['year-mm'],
-    regexes['match']['year-mm'])
-
-regexes['substitution']['dd-mon-year-time'] = r'{}\s+{}\s+({})(?:\.\s+{})?'.format(
-    regexes['match']['dd'],
-    regexes['match']['mon'],
-    regexes['match']['year'],
-    regexes['match']['time'])
 
 def addValuePossiblyDuplicateKey(key, value, dic):
     '''Adds a key-value pair to a dictionary that may already have a value for that key. If that's the case, put both values into a list. This is how pysolr wants us to represent duplicate fields.'''
@@ -168,107 +115,16 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
 
             # build up a set of all the years included in the metadata
             if name == tagNameToColumn['date']:
-                years = years | cleanAndNormalizeDate(value)
+                years.add(value)
 
-    decades = facet_decades(years)
-    for decade in decades:
-        addValuePossiblyDuplicateKey('decade', decade, doc)
+    if len(years) > 0:
+        decades = DateCleanerAndFaceter(years).decades()
+        for decade in decades:
+            addValuePossiblyDuplicateKey('decade', decade, doc)
+        logger.debug('years "{}" -> decades "{}"'.format(years, decades))
 
-    logger.debug('years "{}" -> decades "{}"'.format(years, decades))
 
     return doc
-
-
-def facet_decades(years):
-    '''Returns a set of decades that spans all of the years in the input set.'''
-
-    currentYear = date.today().year
-    matches = set(filter(lambda a: a <= currentYear, years))
-    if len(matches) == 0:
-        return set()
-
-    # round min down to nearest decade
-    start = min(matches) // 10 * 10
-    # add 1 just in case max ends with 0
-    end = max(matches) + 1
-    return set(range(start, end, 10))
-
-
-def resolveUnknownOnes(i):
-    '''i is a string that represents a year with a possibly missing ones value, like "199-?" or "199?". Round down to the nearest decade'''
-
-    m = re.compile('(\d{4})').match(i)
-    if m is not None:
-        return int(m.group(1))
-    else:
-        m = re.compile('(\d{1,3})[-*?]').match(i)
-        return i if m is None else int(m.group(1) + '0')
-
-
-def dateMatchToInt(m):
-    '''Maps a match of regexes['match']['date'] to a set of years.'''
-
-    years = set()
-    '''
-    Match indices:
-    0 -> 'century'
-    1 -> 'year-year'
-    2 -> 'dd-mon-year-time'
-    3 -> 'year/m'
-    4 -> 'year?'
-    5 -> 'suffix'
-    '''
-    try:
-        if m[0] != '':
-            century = int(re.match(re.compile('\d+'), m[0]).group(0))
-            years = {100 * (century - 1), 100 * (century - 1) + 99}
-        elif m[1] != '':
-            years = {int(resolveUnknownOnes(y.strip())) for y in re.sub(regexes['substitution']['year-year'], r'\1>|<\2', m[1]).split('>|<')}
-        elif m[2] != '':
-            years = {int(resolveUnknownOnes(re.sub(regexes['substitution']['dd-mon-year-time'], r'\1', m[2]).strip()))}
-        elif m[3] != '':
-            # TODO: remove this case, we aren't handling it
-            a = m[3].split('/')
-            prefix = a[0][:-1]
-            years = reduce(lambda x, y: x | {int('{}{}'.format(prefix, y))}, a[1:], {int(a[0])})
-        elif m[4] != '':
-            years = {int(resolveUnknownOnes(m[4]))}
-        else:
-            # error
-            raise Error
-    except ValueError as e:
-        logger.error('An error occurred while trying to match "{}": {}'.format(m, e))
-
-    if m[5] != '' and re.compile(regexes['match']['suffix-bce']).match(m[5]) is not None:
-        # move everything to the left side of year 0 on the timeline
-        if m[0] != '':
-            years = {100 * -century, 100 * -century + 99}
-        else:
-            years = {-x for x in years}
-
-    logger.debug('Mapping match to years: {} -> {}'.format(m, years))
-    return years
-
-
-def cleanAndNormalizeDate(dateString):
-    '''Returns a normalized set of years (integers) found in the input string.'''
-
-    # first see if dateutil can parse the date string
-    try:
-        return {parse(dateString).year}
-
-    except ValueError:
-        try:
-            # strip alphabetical chars and spaces from the left side and try again
-            return {parse(dateString.lstrip('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ ')).year}
-        except ValueError:
-            # find as many substrings that look like years as possible
-            matches = re.findall(re.compile(regexes['match']['date']), dateString)
-            logger.debug('{} date string matches found in "{}"'.format(len(matches), dateString))
-            if len(matches) > 0:
-                return reduce(lambda x, y: x | y, [dateMatchToInt(m) for m in matches], set())
-            else:
-                return set()
 
 
 def findThumbnailUrl(bs, filters):
