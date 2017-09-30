@@ -121,11 +121,12 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
 
     if len(years) > 0:
         decades = DateCleanerAndFaceter(years).decades()
-        for decade in decades:
-            addValuePossiblyDuplicateKey('decade', decade, doc)
-        logger.debug('years "{}" -> decades "{}"'.format(years, decades))
 
-        doc['sort_decade'] = min(decades, key=lambda x: int(x))
+        if len(decades) > 0:
+            for decade in decades:
+                addValuePossiblyDuplicateKey('decade', decade, doc)
+            doc['sort_decade'] = min(decades, key=lambda x: int(x))
+            logger.debug('years "{}" -> decades "{}"'.format(years, decades))
 
     return doc
 
