@@ -22,7 +22,7 @@ from tinydb import TinyDB, Query
 import urllib.parse
 import validators
 
-from util import DateCleanerAndFaceter
+from util import DateCleanerAndFaceter, HyperlinkRelevanceHeuristicSorter
 
 '''
 # TODO: move everything inside class
@@ -83,7 +83,7 @@ def addValuePossiblyDuplicateKey(key, value, dic):
         dic[key] = value
 
 
-def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
+def createSolrDoc(identifier, rowInDB, thumbnailurl, tags, hostHeuristic):
     '''Maps a Dublin Core record to a Solr document to be indexed.'''
 
     doc = {
@@ -97,6 +97,9 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
         doc['thumbnail_url'] = thumbnailurl
 
     years = set()
+
+    # TODO: change to set
+    hyperlinks = []
 
     for tag in tags:
 
@@ -118,6 +121,8 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
                 years.add(value)
             elif name == tagNameToColumn['title'] and 'first_title' not in doc:
                 doc['first_title'] = value
+            elif name == tagNameToColumn['identifier'] and validators.url(value) and os.path.splitext(urllib.parse.urlparse(value).path)[1] not in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+                hyperlinks.append(value)
 
     if len(years) > 0:
         decades = DateCleanerAndFaceter(years).decades()
@@ -127,8 +132,31 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags):
                 addValuePossiblyDuplicateKey('decade', decade, doc)
             doc['sort_decade'] = min(decades, key=lambda x: int(x))
             logger.debug('years "{}" -> decades "{}"'.format(years, decades))
+    if len(hyperlinks) > 0:
+        if isOaiIdentifier(identifier):
+            ident = identifier.split(sep=':', maxsplit=2)[2]
+        else:
+            ident = identifier
+
+        heuristics = {
+            'host': hostHeuristic,
+            'identifier': ident
+        }
+        hrhs = HyperlinkRelevanceHeuristicSorter(heuristics, hyperlinks)
+        doc['external_link'] = hrhs.mostRelevant()
+
+        rest = hrhs.rest()
+        if len(rest) > 0:
+            doc['alternate_external_link'] = rest
 
     return doc
+
+
+def isOaiIdentifier(identifier):
+    '''Return true if the given identifier follows the syntax specified here: http://www.openarchives.org/OAI/2.0/guidelines-oai-identifier.htm.'''
+
+    components = identifier.split(sep=':', maxsplit=2)
+    return components[0] == 'oai' and len(components) == 3
 
 
 def findThumbnailUrl(bs, filters):
@@ -284,6 +312,8 @@ def main():
                         recordIdentifier = soup.find('identifier').string
                         tags = soup.find('dc').contents
 
+                oaiPmhHost = urllib.parse.urlparse(row['url_map_from']).netloc
+
                 if action == b'created:':
 
                     logger.info('Creating Solr document for {}'.format(recordIdentifier))
@@ -294,7 +324,7 @@ def main():
                         thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier, row)
                         logger.debug('Got thumbnail: {}'.format(thumbnailUrl))
 
-                    doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags)
+                    doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags, oaiPmhHost)
                     logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
@@ -320,7 +350,7 @@ def main():
                         thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
                         logger.debug('Got thumbnail: {}'.format(thumbnailUrl))
 
-                    doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags)
+                    doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags, oaiPmhHost)
                     logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
