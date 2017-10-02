@@ -4,7 +4,7 @@ import functools
 import pdb
 import traceback
 import logging
-from resourcesync_oai_pmh.destination.util import DateCleanerAndFaceter
+from resourcesync_oai_pmh.destination.util import DateCleanerAndFaceter, HyperlinkRelevanceHeuristicSorter
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -13,9 +13,9 @@ logging.basicConfig(
     )
 logger = logging.getLogger('root')
 
-class TestDateCleanerAndFaceter(unittest.TestCase):
+class TestUtil(unittest.TestCase):
 
-    def test_dateProcessingFunctions(self):
+    def test_DateCleanerAndFaceter(self):
         dates = [
             ('[186-?]', {1860}),
             ('c1904', {1900}),
@@ -64,19 +64,36 @@ class TestDateCleanerAndFaceter(unittest.TestCase):
                 DateCleanerAndFaceter(dates[i][0]).decades(),
                 dates[i][1])
 
-    '''
-    def test_addValuePossiblyDuplicateKey(self):
-        testDict = {}
+    def test_HyperlinkRelevanceHeuristicSorter(self):
+        links = [
+            (
+                {
+                    'host': 'repository.x.y.edu',
+                    'identifier': 'aaa-1000'
+                },
+                [
+                    'http://archives.x.y.edu/repositories/1/archival_objects/aaa-1000',
+                    'http://repository.x.y.edu/en/item/aaa-1000'
+                ],
+                'http://repository.x.y.edu/en/item/aaa-1000'
+            ),
+            (
+                {
+                    'host': 'repository.x.y.edu',
+                    'identifier': 'bbb-1000'
+                },
+                [
+                    'http://repository.x.y.edu/en/item/bbb-1000'
+                ],
+                'http://repository.x.y.edu/en/item/bbb-1000'
+            )
+        ]
 
-        resourcesync_oai_pmh.destination.destination.addValuePossiblyDuplicateKey('1', 'test', testDict)
-        self.assertEqual(testDict['1'], 'test')
-
-        resourcesync_oai_pmh.destination.destination.addValuePossiblyDuplicateKey('1', 'test', testDict)
-        self.assertEqual(testDict['1'], ['test', 'test'])
-
-        resourcesync_oai_pmh.destination.destination.addValuePossiblyDuplicateKey('1', 'test', testDict)
-        self.assertEqual(testDict['1'], ['test', 'test', 'test'])
-    '''
+        for i in range(0, len(links)):
+            hrhs = HyperlinkRelevanceHeuristicSorter(links[i][0], links[i][1]) 
+            self.assertEqual(
+                hrhs.mostRelevant(),
+                links[i][2])
 
 if __name__ == '__main__':
     unittest.main()

@@ -10,6 +10,7 @@ import logging.config
 import os
 import re
 import sys
+import urllib.parse
 
 
 class DateCleanerAndFaceter:
@@ -271,3 +272,59 @@ class DateCleanerAndFaceter:
             m = re.compile('(\d{1,3})[-*?]').match(i)
             return i if m is None else int(m.group(1) + '0')
 
+
+class HyperlinkRelevanceHeuristicSorter:
+    '''
+    Sorts a list of hyperlinks in order of decreasing relevance based on the scoring heuristic.
+    '''
+
+    def __init__(self, heuristics, links):
+        '''
+        heuristics - a dictionary consisting of the following keys:
+        - "host": a string retrieved from the netloc property of the return value of urllib.parse.urlparse
+        - "identifier": the local identifier portion of the OAI identifier as described in http://www.openarchives.org/OAI/2.0/guidelines-oai-identifier.htm if the identifier is structured that way, otherwise the entire OAI identifier
+        links - a list of HTTP URLs
+        '''
+        self.host = heuristics['host']
+        self.identifier = heuristics['identifier']
+
+        self.links = self.__heuristicSort(links)
+
+
+    def mostRelevant(self):
+        '''Return the most relevant link.'''
+
+        return self.links[0]
+
+
+    def rest(self):
+        '''Return the rest of the links.'''
+
+        return self.links[1:]
+
+
+    def __heuristicSort(self, links):
+        '''
+        Sort links based on a heuristic for relevance.
+        '''
+
+        scores = {}
+        for link in links:
+            scores[link] = self.__score(link)
+
+        links.sort(key=lambda x: scores[x], reverse=True)
+        return links
+
+
+    def __score(self, link):
+        '''
+        Highest scoring links are most relevant.
+        '''
+
+        score = 0
+        if self.identifier in link:
+            score += 1
+        netloc = urllib.parse.urlparse(link).netloc
+        if self.host == netloc:
+            score += 1
+        return score
