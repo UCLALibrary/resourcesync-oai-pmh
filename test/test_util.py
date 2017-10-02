@@ -4,7 +4,7 @@ import functools
 import pdb
 import traceback
 import logging
-from resourcesync_oai_pmh.util.util import DateCleanerAndFaceter
+from resourcesync_oai_pmh.destination.util import DateCleanerAndFaceter
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -54,7 +54,9 @@ class TestDateCleanerAndFaceter(unittest.TestCase):
             ('c.1926', {1920}),
             ('1980-03/1980-07', {1980}),
             ('12 Mar 1976. 2.00am', {1970}),
-            ('Something 43 (1968)', {1960})
+            ('1600 BC - 1046 BC', set(range(-1600, -1040 + 1, 10))),
+            ('1600 BC-1046 BC', set(range(-1600, -1040 + 1, 10))),
+            ('Notamonth 43 (1968)', {1960})
             ]
 
         for i in range(0, len(dates)):

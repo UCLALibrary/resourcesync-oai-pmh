@@ -47,6 +47,7 @@ class DateCleanerAndFaceter:
             self.regexes['match']['mm'])
 
         # matches a range of years, separated by either - or /
+        # TODO: allow a range of years to have both ends end in a suffix
         self.regexes['match']['year-year'] = r'{}\s*[-/]\s*{}'.format(
             self.regexes['match']['year-mm'],
             self.regexes['match']['year-mm'])
