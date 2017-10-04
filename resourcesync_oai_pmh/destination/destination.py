@@ -350,9 +350,15 @@ def main():
 
                     try:
                         # if deleted, skip to next record
+                        # TODO: delete the file
                         if soup.find('header')['status'] == 'deleted':
                             continue
+                    except TypeError as e:
+                        # if error, skip to next record
+                        # TODO: delete the file
+                        continue
                     except KeyError:
+                        # no 'status' attribute, so we're good
                         logger.debug('Generating Solr document from records in "{}"'.format(localFile))
                         recordIdentifier = soup.find('identifier').string
                         tags = soup.find('dc').contents
