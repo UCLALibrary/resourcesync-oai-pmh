@@ -15,7 +15,7 @@ import os
 import pathlib
 import pysolr
 import re
-from requests import get
+import requests
 import subprocess
 import sys
 from tinydb import TinyDB, Query
@@ -168,8 +168,6 @@ def findThumbnailUrl(bs, filters):
 
     checkedUrls = []
     for f in filters:
-
-
         # search for tags that match the filter (can be regex or string, see )
         tags = bs.find_all(f)
 
@@ -178,21 +176,66 @@ def findThumbnailUrl(bs, filters):
             if validators.url(possibleUrl) and possibleUrl not in checkedUrls:
                 logger.debug('Checking for thumbnail at {}'.format(possibleUrl))
                 # TODO: maybe check path extension before doing get request?
-                r = get(possibleUrl)
-                # TODO: get image types from config
-                m = re.search(re.compile('image/(?:jpeg|tiff|png)'), r.headers['content-type'])
-                logger.debug('Match: {}'.format(m))
-                if m is not None:
-                    return possibleUrl
-                else:
-                    checkedUrls.append(possibleUrl)
+                #r = requests.get(possibleUrl)
+
+                resp = makeThumbnailRequest(requests.head, possibleUrl, False, True)
+
+                if resp is not None:
+                    try:
+                        m = re.search(re.compile('image/(?:jpeg|tiff|png)'), resp.headers['content-type'])
+                        logger.debug('Match: {}'.format(m))
+                        if m is not None:
+                            return resp.url
+                        else:
+                            checkedUrls.append(possibleUrl)
+                    # no content-type
+                    except KeyError:
+                        checkedUrls.append(possibleUrl)
     return None
+
+
+def makeThumbnailRequest(fn, url, stream, redirect):
+    '''
+    Make request to the given URL and handle the response.
+
+    If we can do something with the response, return it, otherwise return None.
+    '''
+    nTries = 0
+    maxTries = 3
+    while nTries < maxTries:
+        try:
+            r = fn(url, stream=stream, timeout=60, allow_redirects=redirect)
+            r.raise_for_status()
+            break
+        except requests.Timeout as e:
+            # try a couple more times, server may be restarting
+            logger.debug('Trying again...')
+            nTries += 1
+        except requests.ConnectionError as e:
+            return None
+        except requests.TooManyRedirects as e:
+            return None
+        except requests.URLRequired as e:
+            return None
+        except requests.HTTPError as e:
+            return None
+        except requests.RequestException as e:
+            return None
+
+    if nTries == maxTries:
+        logger.debug('Network timeout: {}'.format(url))
+        return None
+    else:
+        return r
 
 
 def getThumbnail(url, recordIdentifier, rowInDB):
     '''Puts the thumbnail file in its place on the image server, and returns its URL.'''
 
-    r = get(url, stream=True)
+    r = makeThumbnailRequest(requests.get, url, True, True)
+    if r is None:
+        # disaster has struck
+        raise Exception('Thumbnail was available, and now it\'s not: {}'.format(url))
 
     basename = url.split('/')[-1]
     extension = os.path.splitext(basename)[1]
@@ -319,10 +362,10 @@ def main():
                     logger.info('Creating Solr document for {}'.format(recordIdentifier))
 
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
-                    logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
                     if thumbnailUrl is not None:
+                        logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
                         thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier, row)
-                        logger.debug('Got thumbnail: {}'.format(thumbnailUrl))
+                        logger.debug('Got thumbnail')
 
                     doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags, oaiPmhHost)
                     logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
@@ -345,10 +388,10 @@ def main():
                     logger.info('Updating Solr document for {}'.format(recordIdentifier))
 
                     thumbnailUrl = findThumbnailUrl(soup, bsFilters)
-                    logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
                     if thumbnailUrl is not None:
-                        thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier)
-                        logger.debug('Got thumbnail: {}'.format(thumbnailUrl))
+                        logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
+                        thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier, row)
+                        logger.debug('Got thumbnail')
 
                     doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags, oaiPmhHost)
                     logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
