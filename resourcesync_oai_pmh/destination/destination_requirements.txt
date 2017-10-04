@@ -5,5 +5,6 @@ lxml==3.8.0
 pysolr==3.6.0
 requests==2.18.1
 resync==1.0.8
+Sickle==0.6.2
 tinydb==3.3.1
 validators==0.12.0

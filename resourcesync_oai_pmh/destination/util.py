@@ -1,15 +1,22 @@
 #!/usr/bin/python3
 
+from bs4 import BeautifulSoup
 import collections
+import csv
 from datetime import date
 from dateutil.parser import parse
+import functools
 from functools import reduce
 from json import dumps
 import logging
 import logging.config
 import os
+import pdb
 import re
+from requests import get
+from sickle import Sickle
 import sys
+from tinydb import TinyDB, Query
 import urllib.parse
 
 
@@ -328,3 +335,105 @@ class HyperlinkRelevanceHeuristicSorter:
         if self.host == netloc:
             score += 1
         return score
+
+
+class PRRLATinyDB:
+    '''Helper class for simplifying interactions with the TinyDB instance.'''
+
+    def __init__(self, path):
+        self.db = TinyDB(path)
+
+    def add(self, collection_key, collection_name, institution_key, institution_name, resourcelist_uri, changelist_uri, url_map_from, file_path_map_to):
+        '''Add a single row to the database.'''
+        self.db.insert({
+            'collection_key': collection_key,
+            'collection_name': collection_name,
+            'institution_key': institution_key,
+            'institution_name': institution_name,
+            'resourcelist_uri': resourcelist_uri,
+            'changelist_uri': changelist_uri,
+            'url_map_from': url_map_from,
+            'file_path_map_to': file_path_map_to,
+            'new': True
+            })
+
+    def addDict(self, d):
+        '''Add a single row to the database using fields from the given dictionary.'''
+        d['new'] = True
+        self.db.insert(d)
+
+    def addMultiple(self, csv_path):
+        with open(csv_path) as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                self.addDict(row)
+
+    def remove(self, collection_key, institution_key):
+        '''Remove a single row from the database.'''
+        Row = Query()
+        self.db.remove(Row.collection_key == collection_key and Row.institution_key == institution_key)
+
+    def removeMultiple(self, l):
+        '''Remove multiple rows from the database.'''
+        for row in l:
+            self.remove(row['collection_key'], row['institution_key'])
+
+    def institution(self, institution_key):
+        '''Lists all rows in the database.'''
+        Row = Query()
+        print(dumps(self.db.search(Row.institution_key == institution_key), indent=4))
+
+    def showAll(self):
+        print(dumps(self.db.all(), indent=4))
+
+    def importSourceDescription(self, institution_key, institution_name, url_map_from, file_path_map_to, resourcesync, oaipmh):
+        pdb.set_trace()
+        '''
+        resourcesync - source description
+        oaipmh - base url
+        '''
+        rs = get(resourcesync)
+        # get set names to resolve them
+        rsSoup = BeautifulSoup(rs.content, 'xml')
+        capabilitylistUrls = [a.string for a in rsSoup.find_all('loc')]
+
+        sickle = Sickle(oaipmh)
+        sets = sickle.ListSets()
+        setSpecToName = {z.setSpec:z.setName for z in sets}
+
+        for capabilitylistUrl in capabilitylistUrls:
+
+            # get it and extract resourcelist
+            # if there's a changelist, use it, else construct
+            r = get(capabilitylistUrl)
+            rSoup = BeautifulSoup(r.content, 'xml')
+
+            rl = rSoup.find(functools.partial(self.hasCapability, 'resourcelist')).loc.string
+            try:
+                cl = rSoup.find(functools.partial(self.hasCapability, 'changelist')).loc.string
+            except AttributeError:
+                cl = '/'.join(rl.split(sep='/')[:-1] + ['changelist_0000.xml']) # search and replace rl
+
+            setSpec = urllib.parse.urlparse(rl).path.split(sep='/')[2]
+
+            self.add(
+                setSpec,
+                setSpecToName[setSpec],
+                institution_key,
+                institution_name,
+                rl,
+                cl,
+                '/'.join(oaipmh.split(sep='/')[:-1]) + '/',
+                file_path_map_to
+                )
+
+
+    def hasCapability(self, c, tag):
+        return tag.md is not None and 'capability' in tag.md.attrs and tag.md['capability'] == c
+
+
+def main():
+    pass
+
+if __name__ == '__main__':
+    main()
