@@ -320,6 +320,7 @@ def main():
         command = ['resync', mode, '--noauth', '--verbose', '--logger', '--delete', '--sitemap', row['resourcelist_uri'], '--changelist-uri', row['changelist_uri'], row['url_map_from'], os.path.join(row['file_path_map_to'], row['institution_key'], row['collection_key'])]
 
         try:
+            logger.info('Syncing {}: {}'.format(row['institution_name'], row['collection_name']))
             actions = subprocess.check_output(
                 command,
                 stderr=subprocess.STDOUT
@@ -343,6 +344,7 @@ def main():
 
                 localFile = line.split(b' -> ')[1]
 
+                logger.debug('Opening {}'.format(localFile))
                 with open(localFile) as fp:
                     soup = BeautifulSoup(fp, 'xml')
 
@@ -351,7 +353,7 @@ def main():
                         if soup.find('header')['status'] == 'deleted':
                             continue
                     except KeyError:
-                        logger.debug('Cenerating Solr document from records in "{}"'.format(localFile))
+                        logger.debug('Generating Solr document from records in "{}"'.format(localFile))
                         recordIdentifier = soup.find('identifier').string
                         tags = soup.find('dc').contents
 
@@ -439,4 +441,7 @@ def main():
     logger.info('---  ENDING RUN  ---\n')
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.critical('SOMETHING WENT TERRIBLY WRONG: {}'.format(e))
