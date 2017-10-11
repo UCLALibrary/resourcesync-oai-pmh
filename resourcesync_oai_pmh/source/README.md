@@ -27,7 +27,7 @@ python3 source.py multi --help
 
 # Examples
 
-Please read [this wiki page](https://github.com/UCLALibrary/resourcesync-oai-pmh/wik://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Use-Case-Recipes).
+Please read [this wiki page](https://github.com/UCLALibrary/resourcesync-oai-pmh/wiki/Use-Case-Recipes).
 
 # Further Information
 

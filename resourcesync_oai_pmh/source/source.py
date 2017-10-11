@@ -12,7 +12,7 @@ from resourcesync.generators.oaipmh_generator import OAIPMHGenerator
 def main():
 
     parser = argparse.ArgumentParser(description='Generate sitemaps for a ResourceSync source server.')
-    subparsers = parser.add_subparsers(title='commands', metavar='COMMAND', description='Each command specifies a different mode for generating sitemaps. For detailed usage instructions, run `python3 rs_oaipmh_src.py COMMAND -h`.')
+    subparsers = parser.add_subparsers(title='commands', metavar='COMMAND', description='Each command specifies a different mode for generating sitemaps. For detailed usage instructions, run `python3 source.py COMMAND -h`.')
 
 
     ### Subcommand - single sitemap
@@ -31,7 +31,7 @@ def main():
     parser_a.add_argument('--no-set-param', action='store_const', const=True, help='the collection/set name is specified in the base URL, not as an OAI-PMH query parameter')
 
     parser_a.add_argument('strategy', metavar='<strategy>', choices=['resourcelist', 'new_changelist', 'inc_changelist'], help='"resourcelist", "new_changelist", or "inc_changelist"')
-    parser_a.add_argument('collection-name', metavar='<collection-name>', help='name of the collection of resources to generate capability documents for')
+    parser_a.add_argument('collection-name', metavar='<collection-name>', help='name of the collection of resources to generate capability documents for; must be a valid name for a directory in your web server\'s document root')
 
     ### Subcommand - multiple sitemaps
     parser_b = subparsers.add_parser('multi', description='Generate multiple sitemaps by specifying parameters as rows in a CSV.', help='generate multiple sitemaps')
