@@ -83,6 +83,20 @@ def addValuePossiblyDuplicateKey(key, value, dic):
         dic[key] = value
 
 
+def removeValuePossiblyDuplicateKey(key, value, dic):
+    '''Removes a key-value pair from a dictionary that may have a list value for that key. If the list has length 2, replace that list with a singlular value.'''
+
+    if key in dic:
+        if isinstance(dic[key], collections.MutableSequence):
+            try:
+                dic[key].remove(value)
+            except ValueError:
+                # value wasn't there, so we're golden
+                pass
+        else:
+            del dic[key]
+
+
 def createSolrDoc(identifier, rowInDB, thumbnailurl, tags, hostHeuristic):
     '''Maps a Dublin Core record to a Solr document to be indexed.'''
 
@@ -280,7 +294,25 @@ def getThumbnail(url, recordIdentifier, rowInDB):
 
 
 def deleteThumbnail(s3Key):
+
     s3.delete_object(Bucket=config['S3']['bucket'], Key=s3Key)
+
+
+def getSolrDoc(solr, identifier):
+    '''Retrieves the Solr doc according to the given identifier.'''
+
+    results = solr.search(q='id:"{}"'.format(identifier))
+    if len(results) is 0:
+        return None
+    elif len(results) is 1:
+        return results.docs[0]
+    else:
+        # bug in pysolr or our solr index; only one doc per identifier
+        logger.debug('BUG: more than one doc for the given id: {}'.format(identifier)
+        for r in results:
+            logger.debug(r)
+
+        return results.docs[0]
 
 
 def main():
@@ -365,18 +397,38 @@ def main():
 
                 oaiPmhHost = urllib.parse.urlparse(row['url_map_from']).netloc
 
+
+                # see what other collections this resource is in, if any
+                existingDoc = getSolrDoc(recordIdentifier)
+                if existingDoc is not None:
+                    otherCollections = {k:v for (k,v) in zip(existingDoc['collectionKey'], existingDoc['collectionName'])}
+                else:
+                    otherCollections = {}
+
+
                 if action == b'created:':
 
-                    logger.info('Creating Solr document for {}'.format(recordIdentifier))
+                    if len(otherCollections.keys()) > 0:
+                        # just update the list of collections
+                        logger.info('Adding {} to collection {}'.format('hi', 'hi'))
+                        doc = existingDoc
+                        addValuePossiblyDuplicateKey('collectionKey', row['collection_key'], doc)
+                        addValuePossiblyDuplicateKey('collectionName', row['collection_name'], doc)
+                        logger.debug('Modified Solr doc: {}'.format(dumps(doc, indent=4)))
+                    else:
+                        # build doc from scratch
 
-                    thumbnailUrl = findThumbnailUrl(soup, bsFilters)
-                    if thumbnailUrl is not None:
-                        logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
-                        thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier, row)
-                        logger.debug('Got thumbnail')
+                        logger.info('Creating Solr document for {}'.format(recordIdentifier))
 
-                    doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags, oaiPmhHost)
-                    logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
+                        thumbnailUrl = findThumbnailUrl(soup, bsFilters)
+                        if thumbnailUrl is not None:
+                            logger.debug('Found thumbnail URL: {}'.format(thumbnailUrl))
+                            thumbnailUrl = getThumbnail(thumbnailUrl, recordIdentifier, row)
+                            logger.debug('Got thumbnail')
+
+                        doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags, oaiPmhHost)
+                        logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
+
                     try:
                         solr.add([doc])
                         logger.debug('Submitted Solr doc!')
@@ -402,6 +454,16 @@ def main():
                         logger.debug('Got thumbnail')
 
                     doc = createSolrDoc(recordIdentifier, row, thumbnailUrl, tags, oaiPmhHost)
+
+                    if len(otherCollections.keys()) > 0:
+                        # be sure to persist all collections in it
+                        logger.info('Updating {} for collections {}'.format('hi', 'hi'))
+                        for k,v in otherCollections:
+                            # don't add the current collection key twice
+                            if k != row['collection_key'] and v != row['collection_name']:
+                                addValuePossiblyDuplicateKey('collectionKey', k, doc)
+                                addValuePossiblyDuplicateKey('collectionName', v, doc)
+
                     logger.debug('Created Solr doc: {}'.format(dumps(doc, indent=4)))
                     try:
                         solr.add([doc])
@@ -419,22 +481,43 @@ def main():
 
                 elif action == b'deleted:':
 
-                    # TODO: delete the associated thumbnail as well
-                    logger.info('Deleting Solr document for {}'.format(recordIdentifier))
-                    deleteThumbnail(recordIdentifier)
+                    if len(otherCollections.keys()) > 1:
+                        # if there is more than one collection, just modify that field and reinsert it
+                        logger.info('Removing {} from collection {}'.format('hi', 'hi'))
+                        doc = existingDoc
+                        removeValuePossiblyDuplicateKey('collectionKey', row['collection_key'], doc)
+                        removeValuePossiblyDuplicateKey('collectionName', row['collection_name'], doc)
 
-                    try:
-                        solr.delete(id=recordIdentifier)
-                    except:
-                        logger.error('Something went wrong while trying to send data to Solr')
-                        '''
-                        # TODO: fault tolerance
-                        failures.push({
-                            'collection_key': recordIdentifier,
-                            'action': action
-                            })
-                        '''
-                        continue
+                        try:
+                            solr.add([doc])
+                            logger.debug('Submitted Solr doc!')
+                        except:
+                            logger.error('Something went wrong while trying to send data to Solr')
+                            '''
+                            # TODO: fault tolerance
+                            failures.push({
+                                'collection_key': recordIdentifier,
+                                'action': action
+                                })
+                            '''
+                            continue
+
+                    else:
+                        logger.info('Deleting Solr document for {}'.format(recordIdentifier))
+                        deleteThumbnail(recordIdentifier)
+
+                        try:
+                            solr.delete(id=recordIdentifier)
+                        except:
+                            logger.error('Something went wrong while trying to send data to Solr')
+                            '''
+                            # TODO: fault tolerance
+                            failures.push({
+                                'collection_key': recordIdentifier,
+                                'action': action
+                                })
+                            '''
+                            continue
 
         '''
         # TODO: fault tolerance
