@@ -458,40 +458,61 @@ class PRRLATinyDB:
     def __init__(self, path):
         self.db = TinyDB(path)
 
-    def add(self, collection_key, collection_name, institution_key, institution_name, resourcelist_uri, changelist_uri, url_map_from, file_path_map_to):
-        '''Add a single row to the database.'''
-        self.db.insert({
-            'collection_key': collection_key,
-            'collection_name': collection_name,
-            'institution_key': institution_key,
-            'institution_name': institution_name,
-            'resourcelist_uri': resourcelist_uri,
-            'changelist_uri': changelist_uri,
-            'url_map_from': url_map_from,
-            'file_path_map_to': file_path_map_to,
-            'new': True
-            })
-
-    def addDict(self, d):
-        '''Add a single row to the database using fields from the given dictionary.'''
-        d['new'] = True
-        self.db.insert(d)
-
-    def addMultiple(self, csv_path):
-        with open(csv_path) as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                self.addDict(row)
-
-    def remove(self, collection_key, institution_key):
-        '''Remove a single row from the database.'''
+    def insert_or_update(self, collection_key, collection_name, institution_key, institution_name, resourcelist_uri, changelist_uri, url_map_from, resource_dir='resourcesync', overwrite=False):
+        '''
+        Add or update a single row.
+        '''
         Row = Query()
-        self.db.remove(Row.collection_key == collection_key and Row.institution_key == institution_key)
+        if not self.containsSet(institution_key, collection_key):
+            # NOTE: if either `collection_key` or `institution_key` change for any given collection,
+            # the filesystem location of the saved files will also change,
+            # since resources are saved under the path `file_path_map_to`/`institution_key`/`collection_key`.
 
-    def removeMultiple(self, l):
-        '''Remove multiple rows from the database.'''
-        for row in l:
-            self.remove(row['collection_key'], row['institution_key'])
+            # TODO: keep track of potential stale directories so they can be manually deleted.
+            # This could involve logging calls to `add` where a row in the DB doesn't match the `institution_key` and `collection_key` parameters,
+            # but DOES match either 1) both the `institution_name` and `collection_name` parameters, or 2) one of the URI parameters.
+
+            self.db.insert({
+                'collection_key': collection_key,
+                'collection_name': collection_name,
+                'institution_key': institution_key,
+                'institution_name': institution_name,
+                'resourcelist_uri': resourcelist_uri,
+                'changelist_uri': changelist_uri,
+                'url_map_from': url_map_from,
+                'file_path_map_to': resource_dir,
+                'new': True
+                })
+        elif overwrite == True:
+
+            # TODO: if `file_path_map_to` changes, then we need to do a baseline synchronization again,
+            # because that means the files will change location on the filesystem.
+            # However, `file_path_map_to` should not be changed once chosen.
+            self.db.update({
+                'collection_key': collection_key,
+                'collection_name': collection_name,
+                'institution_key': institution_key,
+                'institution_name': institution_name,
+                'resourcelist_uri': resourcelist_uri,
+                'changelist_uri': changelist_uri,
+                'url_map_from': url_map_from,
+                'file_path_map_to': resource_dir,
+                }, Row.institution_key == institution_key and Row.collection_key == collection_key)
+        else:
+            # If row already exists and we don't want to overwrite, no-op.
+            # TODO: log
+            pass
+
+    def remove_collections(self, institution_key, collection_keys=None):
+        '''Remove rows from the database.'''
+        Row = Query()
+        if (collection_key is None):
+            # Remove all collections
+            self.db.remove(Row.institution_key == institution_key)
+        else:
+            # Remove only specified collections
+            for collection_key in collection_keys:
+                self.db.remove(Row.institution_key == institution_key and Row.collection_key == collection_key)
 
     def institution(self, institution_key):
         '''Lists all rows in the database.'''
@@ -501,50 +522,71 @@ class PRRLATinyDB:
     def showAll(self):
         print(dumps(self.db.all(), indent=4))
 
-    def importSourceDescription(self, institution_key, institution_name, url_map_from, file_path_map_to, resourcesync, oaipmh):
+    def import_collections(self, resourcesync_sourcedescription, oaipmh_endpoint, collections_subset=None, **kwargs):
         '''
-        resourcesync - source description
-        oaipmh - base url
+        Add to the database all of the resource sets specified in a ResourceSync SourceDescription.
+
+        resourcesync_sourcedescription - a ResourceSync SourceDescription URL
+        oaipmh_endpoint - the value of the "baseURL" field in the OAI-PMH Identify request, as specified in https://www.openarchives.org/OAI/openarchivesprotocol.html#Identify
+        collections_subset - a list of collections to restrict the import to
+
+        Keyword arguments:
+            resource_dir - path to the local directory to store copies of the synced resources to, relative to the home directory "~"
+            overwrite - whether or not to overwrite rows in the database that match the `collection_key` and `institution_key`
         '''
-        rs = get(resourcesync)
-        # get set names to resolve them
-        rsSoup = BeautifulSoup(rs.content, 'xml')
+        rsSoup = BeautifulSoup(get(resourcesync_sourcedescription).content, 'xml')
         capabilitylistUrls = [a.string for a in rsSoup.find_all('loc')]
 
-        sickle = Sickle(oaipmh)
+        sickle = Sickle(oaipmh_endpoint)
         sets = sickle.ListSets()
+        identify = sickle.Identify()
+
         setSpecToName = {z.setSpec:z.setName for z in sets}
+        url_map_from = '/'.join(oaipmh_endpoint.split(sep='/')[:-1]) + '/'
 
         for capabilitylistUrl in capabilitylistUrls:
 
-            # get it and extract resourcelist
-            # if there's a changelist, use it, else construct
-            r = get(capabilitylistUrl)
-            rSoup = BeautifulSoup(r.content, 'xml')
+            # For now, get setSpec from the path component of the CapabilityList URL (which may have percent-encoded characters)
+            setSpec = urllib.parse.unquote(urllib.parse.urlparse(capabilitylistUrl).path.split(sep='/')[2])
 
-            rl = rSoup.find(functools.partial(self.hasCapability, 'resourcelist')).loc.string
-            try:
-                cl = rSoup.find(functools.partial(self.hasCapability, 'changelist')).loc.string
-            except AttributeError:
-                cl = '/'.join(rl.split(sep='/')[:-1] + ['changelist_0000.xml']) # search and replace rl
+            # If a subset of collections is specified, only add collections that belong to it. Otherwise, add all collections.
+            if (collections_subset is None or (collections_subset is not None and setSpec in collections_subset)):
 
-            setSpec = urllib.parse.urlparse(rl).path.split(sep='/')[2]
+                rSoup = BeautifulSoup(get(capabilitylistUrl).content, 'xml')
 
-            self.add(
-                setSpec,
-                setSpecToName[setSpec],
-                institution_key,
-                institution_name,
-                rl,
-                cl,
-                '/'.join(oaipmh.split(sep='/')[:-1]) + '/',
-                file_path_map_to
-                )
+                # ResourceList should always exist, but if it doesn't, log it and skip this collection
+                try:
+                    resourcelist_url = rSoup.find(functools.partial(self.hasCapability, 'resourcelist')).loc.string
+                except AttributeError:
+                    # TODO: log it
+                    pass
+                    continue
 
+                # If no ChangeList exists yet, that's ok; predict what its URL will be
+                try:
+                    changelist_url = rSoup.find(functools.partial(self.hasCapability, 'changelist')).loc.string
+                except AttributeError:
+                    changelist_url = '/'.join(resourcelist_url.split(sep='/')[:-1] + ['changelist_0000.xml'])
+
+                print(setSpec, identify.repositoryName, identify.repositoryIdentifier)
+                # We can add the collection to the database now
+                self.insert_or_update(
+                    setSpec,
+                    setSpecToName[setSpec],
+                    identify.repositoryIdentifier,
+                    identify.repositoryName,
+                    resourcelist_url,
+                    changelist_url,
+                    url_map_from,
+                    **kwargs
+                    )
 
     def hasCapability(self, c, tag):
         return tag.md is not None and 'capability' in tag.md.attrs and tag.md['capability'] == c
 
+    def containsSet(self, institution_key, collection_key):
+        Row = Query()
+        return self.db.contains(Row.institution_key == institution_key and Row.collection_key == collection_key)
 
 def main():
     pass
