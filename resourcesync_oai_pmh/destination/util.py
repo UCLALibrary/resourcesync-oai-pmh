@@ -463,7 +463,7 @@ class PRRLATinyDB:
         Add or update a single row.
         '''
         Row = Query()
-        if not self.containsSet(institution_key, collection_key):
+        if not self.contains_set(institution_key, collection_key):
             # NOTE: if either `collection_key` or `institution_key` change for any given collection,
             # the filesystem location of the saved files will also change,
             # since resources are saved under the path `file_path_map_to`/`institution_key`/`collection_key`.
@@ -519,7 +519,7 @@ class PRRLATinyDB:
         Row = Query()
         print(dumps(self.db.search(Row.institution_key == institution_key), indent=4))
 
-    def showAll(self):
+    def show_all(self):
         print(dumps(self.db.all(), indent=4))
 
     def import_collections(self, resourcesync_sourcedescription, oaipmh_endpoint, collections_subset=None, **kwargs):
@@ -535,28 +535,28 @@ class PRRLATinyDB:
             overwrite - whether or not to overwrite rows in the database that match the `collection_key` and `institution_key`
         '''
         rsSoup = BeautifulSoup(get(resourcesync_sourcedescription).content, 'xml')
-        capabilitylistUrls = [a.string for a in rsSoup.find_all('loc')]
+        capabilitylist_urls = [a.string for a in rsSoup.find_all('loc')]
 
         sickle = Sickle(oaipmh_endpoint)
         sets = sickle.ListSets()
         identify = sickle.Identify()
 
-        setSpecToName = {z.setSpec:z.setName for z in sets}
+        set_spec_to_name = {z.setSpec:z.setName for z in sets}
         url_map_from = '/'.join(oaipmh_endpoint.split(sep='/')[:-1]) + '/'
 
-        for capabilitylistUrl in capabilitylistUrls:
+        for capabilitylist_url in capabilitylist_urls:
 
             # For now, get setSpec from the path component of the CapabilityList URL (which may have percent-encoded characters)
-            setSpec = urllib.parse.unquote(urllib.parse.urlparse(capabilitylistUrl).path.split(sep='/')[2])
+            set_spec = urllib.parse.unquote(urllib.parse.urlparse(capabilitylist_url).path.split(sep='/')[2])
 
             # If a subset of collections is specified, only add collections that belong to it. Otherwise, add all collections.
-            if (collections_subset is None or (collections_subset is not None and setSpec in collections_subset)):
+            if (collections_subset is None or (collections_subset is not None and set_spec in collections_subset)):
 
-                rSoup = BeautifulSoup(get(capabilitylistUrl).content, 'xml')
+                r_soup = BeautifulSoup(get(capabilitylist_url).content, 'xml')
 
                 # ResourceList should always exist, but if it doesn't, log it and skip this collection
                 try:
-                    resourcelist_url = rSoup.find(functools.partial(self.hasCapability, 'resourcelist')).loc.string
+                    resourcelist_url = r_soup.find(functools.partial(self.has_capability, 'resourcelist')).loc.string
                 except AttributeError:
                     # TODO: log it
                     pass
@@ -564,15 +564,15 @@ class PRRLATinyDB:
 
                 # If no ChangeList exists yet, that's ok; predict what its URL will be
                 try:
-                    changelist_url = rSoup.find(functools.partial(self.hasCapability, 'changelist')).loc.string
+                    changelist_url = r_soup.find(functools.partial(self.has_capability, 'changelist')).loc.string
                 except AttributeError:
                     changelist_url = '/'.join(resourcelist_url.split(sep='/')[:-1] + ['changelist_0000.xml'])
 
-                print(setSpec, identify.repositoryName, identify.repositoryIdentifier)
+                print(set_spec, identify.repositoryName, identify.repositoryIdentifier)
                 # We can add the collection to the database now
                 self.insert_or_update(
-                    setSpec,
-                    setSpecToName[setSpec],
+                    set_spec,
+                    set_spec_to_name[set_spec],
                     identify.repositoryIdentifier,
                     identify.repositoryName,
                     resourcelist_url,
@@ -581,10 +581,10 @@ class PRRLATinyDB:
                     **kwargs
                     )
 
-    def hasCapability(self, c, tag):
+    def has_capability(self, c, tag):
         return tag.md is not None and 'capability' in tag.md.attrs and tag.md['capability'] == c
 
-    def containsSet(self, institution_key, collection_key):
+    def contains_set(self, institution_key, collection_key):
         Row = Query()
         return self.db.contains(Row.institution_key == institution_key and Row.collection_key == collection_key)
 
