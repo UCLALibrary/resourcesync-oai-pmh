@@ -13,11 +13,3 @@ If your institution will be providing metadata records for PRRLA, follow the ins
 ## Content aggregator (destination)
 
 If your institution will be aggregating metadata records for PRRLA, follow the instructions for the [destination](resourcesync_oai_pmh/destination) module.
-
-## Tests
-
-To run automated tests, do:
-```bash
-python3 -m unittest discover -s test # unless you're a developer, you shouldn't need to do this
-
-```
