@@ -514,13 +514,16 @@ class PRRLATinyDB:
             for collection_key in collection_keys:
                 self.db.remove(Row.institution_key == institution_key and Row.collection_key == collection_key)
 
-    def institution(self, institution_key):
-        '''Lists all rows in the database.'''
-        Row = Query()
-        print(dumps(self.db.search(Row.institution_key == institution_key), indent=4))
-
-    def show_all(self):
-        print(dumps(self.db.all(), indent=4))
+    def show_collections(self, institution_keys=None):
+        # TODO: parameter to choose which fields to print, or print data in tabular form
+        if (institution_keys is None):
+            print(dumps(self.db.all(), indent=4))
+        else:
+            Row = Query()
+            results = []
+            for institution_key in institution_keys:
+                results += self.db.search(Row.institution_key == institution_key)
+            print(dumps(results, indent=4))
 
     def import_collections(self, resourcesync_sourcedescription, oaipmh_endpoint, collections_subset=None, **kwargs):
         '''
