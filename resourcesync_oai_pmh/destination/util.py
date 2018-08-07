@@ -506,7 +506,7 @@ class PRRLATinyDB:
     def remove_collections(self, institution_key, collection_keys=None):
         '''Remove rows from the database.'''
         Row = Query()
-        if (collection_key is None):
+        if (collection_keys is None):
             # Remove all collections
             self.db.remove(Row.institution_key == institution_key)
         else:
