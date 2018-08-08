@@ -453,17 +453,41 @@ class HyperlinkRelevanceHeuristicSorter:
 
 
 class PRRLATinyDB:
-    '''Helper class for simplifying interactions with the TinyDB instance.'''
+    '''
+    Helper class for simplifying interactions with the TinyDB instance.
+    '''
 
     def __init__(self, path):
         self.db = TinyDB(path)
 
-    def insert_or_update(self, collection_key, collection_name, institution_key, institution_name, resourcelist_uri, changelist_uri, url_map_from, resource_dir='resourcesync', overwrite=False):
+
+    def insert_or_update(self, institution_key, institution_name, collection_key, collection_name, resourcelist_uri, changelist_uri, url_map_from, resource_dir='resourcesync', overwrite=False):
         '''
-        Add or update a single row.
+        Adds or updates a single row in the database.
+
+        This method should normally be called only by `import_collections`.
+
+        Args:
+          institution_key: a machine-readable name for an institution
+          institution_name: a human-readable name for an institution
+          collection_key: a machine-readable name for a collection
+          collection_name: a human-readable name for a collection
+          resourcelist_uri: a URL for a ResourceSync ResourceList
+          changelist_uri: a URL for a ResourceSync ChangeList
+          url_map_from: the leading part of a Resource's URL to cut off in 
+              order to map the URL to a local filename
+          resource_dir: path to the local directory to store copies of the 
+              synced resources to, relative to the home directory "~"
+          overwrite: whether or not to overwrite rows in the database that 
+              match the `collection_key` and `institution_key`
+
+        Returns:
+          None
         '''
+        # TODO: change *_uri parameters to *_url
+        # TODO: throw errors when warranted
         Row = Query()
-        if not self.contains_set(institution_key, collection_key):
+        if not self.db.contains(Row.institution_key == institution_key and Row.collection_key == collection_key):
             # NOTE: if either `collection_key` or `institution_key` change for any given collection,
             # the filesystem location of the saved files will also change,
             # since resources are saved under the path `file_path_map_to`/`institution_key`/`collection_key`.
@@ -473,10 +497,10 @@ class PRRLATinyDB:
             # but DOES match either 1) both the `institution_name` and `collection_name` parameters, or 2) one of the URI parameters.
 
             self.db.insert({
-                'collection_key': collection_key,
-                'collection_name': collection_name,
                 'institution_key': institution_key,
                 'institution_name': institution_name,
+                'collection_key': collection_key,
+                'collection_name': collection_name,
                 'resourcelist_uri': resourcelist_uri,
                 'changelist_uri': changelist_uri,
                 'url_map_from': url_map_from,
@@ -489,10 +513,10 @@ class PRRLATinyDB:
             # because that means the files will change location on the filesystem.
             # However, `file_path_map_to` should not be changed once chosen.
             self.db.update({
-                'collection_key': collection_key,
-                'collection_name': collection_name,
                 'institution_key': institution_key,
                 'institution_name': institution_name,
+                'collection_key': collection_key,
+                'collection_name': collection_name,
                 'resourcelist_uri': resourcelist_uri,
                 'changelist_uri': changelist_uri,
                 'url_map_from': url_map_from,
@@ -503,19 +527,50 @@ class PRRLATinyDB:
             # TODO: log
             pass
 
+
     def remove_collections(self, institution_key, collection_keys=None):
-        '''Remove rows from the database.'''
+        '''
+        Removes collections of a given institution from the database.
+
+        If a list of collection keys is specified (with values found in the 
+        `collection_key` column in the database), then remove only those 
+        collections. Otherwise, remove all of the institution's collections.
+
+        Args:
+          institution_key: a value found in the `institution_key` column in 
+              the database
+          collection_keys: a list of values found in the `collection_key` 
+              column in the database
+
+        Returns
+          None
+        '''
+        # TODO: print collections that we remove
         Row = Query()
         if (collection_keys is None):
-            # Remove all collections
             self.db.remove(Row.institution_key == institution_key)
         else:
-            # Remove only specified collections
             for collection_key in collection_keys:
                 self.db.remove(Row.institution_key == institution_key and Row.collection_key == collection_key)
 
+
     def show_collections(self, institution_keys=None):
-        # TODO: parameter to choose which fields to print, or print data in tabular form
+        '''
+        Prints a list of collections from the database.
+
+        If a list of institution keys is specified (with values found in the 
+        `institution_key` column in the database), then show collections of 
+        only those institutions. Otherwise, show all collections in the 
+        database.
+
+        Args:
+          institution_keys: a list of values found in the `institution_key` 
+              column in the database
+
+        Returns:
+          None
+        '''
+        # TODO: add parameter to choose which fields to print, or to print data in tabular form
         if (institution_keys is None):
             print(dumps(self.db.all(), indent=4))
         else:
@@ -525,20 +580,32 @@ class PRRLATinyDB:
                 results += self.db.search(Row.institution_key == institution_key)
             print(dumps(results, indent=4))
 
+
     def import_collections(self, resourcesync_sourcedescription, oaipmh_endpoint, collections_subset=None, **kwargs):
         '''
-        Add to the database all of the resource sets specified in a ResourceSync SourceDescription.
+        Adds an institution's ResourceSync-able collections to the database.
 
-        resourcesync_sourcedescription - a ResourceSync SourceDescription URL
-        oaipmh_endpoint - the value of the "baseURL" field in the OAI-PMH Identify request, as specified in https://www.openarchives.org/OAI/openarchivesprotocol.html#Identify
-        collections_subset - a list of collections to restrict the import to
+        If `collections_subset` is specified, then add to the database only 
+        the collections specified by that list. Otherwise, add all collections 
+        to the database.
 
-        Keyword arguments:
-            resource_dir - path to the local directory to store copies of the synced resources to, relative to the home directory "~"
-            overwrite - whether or not to overwrite rows in the database that match the `collection_key` and `institution_key`
+        Args:
+          resourcesync_sourcedescription: a ResourceSync SourceDescription URL
+              see https://www.openarchives.org/rs/1.1/resourcesync#SourceDesc
+          oaipmh_endpoint: a OAI-PMH base URL
+              see https://www.openarchives.org/OAI/openarchivesprotocol.html#Identify
+          collections_subset: a list of collection keys specifying an 
+              exclusive list of collections to add to the database
+          **kwargs['resource_dir']: path to the local directory to store copies 
+              of the synced resources to, relative to the home directory "~"
+          **kwargs['overwrite']: whether or not to overwrite rows in the 
+              database that match the `collection_key` and `institution_key`
+
+        Returns:
+          None
         '''
-        rsSoup = BeautifulSoup(get(resourcesync_sourcedescription).content, 'xml')
-        capabilitylist_urls = [a.string for a in rsSoup.find_all('loc')]
+        rs_soup = BeautifulSoup(get(resourcesync_sourcedescription).content, 'xml')
+        capabilitylist_urls = [a.string for a in rs_soup.find_all('loc')]
 
         sickle = Sickle(oaipmh_endpoint)
         sets = sickle.ListSets()
@@ -546,6 +613,8 @@ class PRRLATinyDB:
 
         set_spec_to_name = {z.setSpec:z.setName for z in sets}
         url_map_from = '/'.join(oaipmh_endpoint.split(sep='/')[:-1]) + '/'
+
+        has_capability = lambda c, tag: tag.md is not None and 'capability' in tag.md.attrs and tag.md['capability'] == c
 
         for capabilitylist_url in capabilitylist_urls:
 
@@ -559,7 +628,7 @@ class PRRLATinyDB:
 
                 # ResourceList should always exist, but if it doesn't, log it and skip this collection
                 try:
-                    resourcelist_url = r_soup.find(functools.partial(self.has_capability, 'resourcelist')).loc.string
+                    resourcelist_url = r_soup.find(functools.partial(has_capability, 'resourcelist')).loc.string
                 except AttributeError:
                     # TODO: log it
                     pass
@@ -567,29 +636,29 @@ class PRRLATinyDB:
 
                 # If no ChangeList exists yet, that's ok; predict what its URL will be
                 try:
-                    changelist_url = r_soup.find(functools.partial(self.has_capability, 'changelist')).loc.string
+                    changelist_url = r_soup.find(functools.partial(has_capability, 'changelist')).loc.string
                 except AttributeError:
                     changelist_url = '/'.join(resourcelist_url.split(sep='/')[:-1] + ['changelist_0000.xml'])
 
-                print(set_spec, identify.repositoryName, identify.repositoryIdentifier)
+                print(self.__collection_identifier(identify.repositoryName, identify.repositoryIdentifier, set_spec_to_name[set_spec], set_spec))
+
                 # We can add the collection to the database now
+                # TODO: catch exceptions
                 self.insert_or_update(
-                    set_spec,
-                    set_spec_to_name[set_spec],
                     identify.repositoryIdentifier,
                     identify.repositoryName,
+                    set_spec,
+                    set_spec_to_name[set_spec],
                     resourcelist_url,
                     changelist_url,
                     url_map_from,
                     **kwargs
                     )
 
-    def has_capability(self, c, tag):
-        return tag.md is not None and 'capability' in tag.md.attrs and tag.md['capability'] == c
 
-    def contains_set(self, institution_key, collection_key):
-        Row = Query()
-        return self.db.contains(Row.institution_key == institution_key and Row.collection_key == collection_key)
+    def __collection_identifier(self, repository_name, repository_identifier, set_name, set_identifier):
+        return repository_name + ' (' + repository_identifier + ') : ' + set_name + ' (' + set_identifier + ')'
+
 
 def main():
     pass
