@@ -461,99 +461,6 @@ class PRRLATinyDB:
         self.db = TinyDB(path)
 
 
-    def insert_or_update(self, institution_key, institution_name, collection_key, collection_name, resourcelist_uri, changelist_uri, url_map_from, resource_dir='resourcesync', overwrite=False):
-        '''
-        Adds or updates a single row in the database.
-
-        This method should normally be called only by `import_collections`.
-
-        Args:
-          institution_key: a machine-readable name for an institution
-          institution_name: a human-readable name for an institution
-          collection_key: a machine-readable name for a collection
-          collection_name: a human-readable name for a collection
-          resourcelist_uri: a URL for a ResourceSync ResourceList
-          changelist_uri: a URL for a ResourceSync ChangeList
-          url_map_from: the leading part of a Resource's URL to cut off in 
-              order to map the URL to a local filename
-          resource_dir: path to the local directory to store copies of the 
-              synced resources to, relative to the home directory "~"
-          overwrite: whether or not to overwrite rows in the database that 
-              match the `collection_key` and `institution_key`
-
-        Returns:
-          None
-        '''
-        # TODO: change *_uri parameters to *_url
-        # TODO: throw errors when warranted
-        Row = Query()
-        if not self.db.contains(Row.institution_key == institution_key and Row.collection_key == collection_key):
-            # NOTE: if either `collection_key` or `institution_key` change for any given collection,
-            # the filesystem location of the saved files will also change,
-            # since resources are saved under the path `file_path_map_to`/`institution_key`/`collection_key`.
-
-            # TODO: keep track of potential stale directories so they can be manually deleted.
-            # This could involve logging calls to `add` where a row in the DB doesn't match the `institution_key` and `collection_key` parameters,
-            # but DOES match either 1) both the `institution_name` and `collection_name` parameters, or 2) one of the URI parameters.
-
-            self.db.insert({
-                'institution_key': institution_key,
-                'institution_name': institution_name,
-                'collection_key': collection_key,
-                'collection_name': collection_name,
-                'resourcelist_uri': resourcelist_uri,
-                'changelist_uri': changelist_uri,
-                'url_map_from': url_map_from,
-                'file_path_map_to': resource_dir,
-                'new': True
-                })
-        elif overwrite == True:
-
-            # TODO: if `file_path_map_to` changes, then we need to do a baseline synchronization again,
-            # because that means the files will change location on the filesystem.
-            # However, `file_path_map_to` should not be changed once chosen.
-            self.db.update({
-                'institution_key': institution_key,
-                'institution_name': institution_name,
-                'collection_key': collection_key,
-                'collection_name': collection_name,
-                'resourcelist_uri': resourcelist_uri,
-                'changelist_uri': changelist_uri,
-                'url_map_from': url_map_from,
-                'file_path_map_to': resource_dir,
-                }, Row.institution_key == institution_key and Row.collection_key == collection_key)
-        else:
-            # If row already exists and we don't want to overwrite, no-op.
-            # TODO: log
-            pass
-
-
-    def remove_collections(self, institution_key, collection_keys=None):
-        '''
-        Removes collections of a given institution from the database.
-
-        If a list of collection keys is specified (with values found in the 
-        `collection_key` column in the database), then remove only those 
-        collections. Otherwise, remove all of the institution's collections.
-
-        Args:
-          institution_key: a value found in the `institution_key` column in 
-              the database
-          collection_keys: a list of values found in the `collection_key` 
-              column in the database
-
-        Returns
-          None
-        '''
-        # TODO: print collections that we remove
-        Row = Query()
-        if (collection_keys is None):
-            self.db.remove(Row.institution_key == institution_key)
-        else:
-            for collection_key in collection_keys:
-                self.db.remove(Row.institution_key == institution_key and Row.collection_key == collection_key)
-
-
     def show_collections(self, institution_keys=None):
         '''
         Prints a list of collections from the database.
@@ -654,6 +561,99 @@ class PRRLATinyDB:
                     url_map_from,
                     **kwargs
                     )
+
+
+    def remove_collections(self, institution_key, collection_keys=None):
+        '''
+        Removes collections of a given institution from the database.
+
+        If a list of collection keys is specified (with values found in the 
+        `collection_key` column in the database), then remove only those 
+        collections. Otherwise, remove all of the institution's collections.
+
+        Args:
+          institution_key: a value found in the `institution_key` column in 
+              the database
+          collection_keys: a list of values found in the `collection_key` 
+              column in the database
+
+        Returns
+          None
+        '''
+        # TODO: print collections that we remove
+        Row = Query()
+        if (collection_keys is None):
+            self.db.remove(Row.institution_key == institution_key)
+        else:
+            for collection_key in collection_keys:
+                self.db.remove(Row.institution_key == institution_key and Row.collection_key == collection_key)
+
+
+    def insert_or_update(self, institution_key, institution_name, collection_key, collection_name, resourcelist_uri, changelist_uri, url_map_from, resource_dir='resourcesync', overwrite=False):
+        '''
+        Adds or updates a single row in the database.
+
+        This method should normally be called only by `import_collections`.
+
+        Args:
+          institution_key: a machine-readable name for an institution
+          institution_name: a human-readable name for an institution
+          collection_key: a machine-readable name for a collection
+          collection_name: a human-readable name for a collection
+          resourcelist_uri: a URL for a ResourceSync ResourceList
+          changelist_uri: a URL for a ResourceSync ChangeList
+          url_map_from: the leading part of a Resource's URL to cut off in 
+              order to map the URL to a local filename
+          resource_dir: path to the local directory to store copies of the 
+              synced resources to, relative to the home directory "~"
+          overwrite: whether or not to overwrite rows in the database that 
+              match the `collection_key` and `institution_key`
+
+        Returns:
+          None
+        '''
+        # TODO: change *_uri parameters to *_url
+        # TODO: throw errors when warranted
+        Row = Query()
+        if not self.db.contains(Row.institution_key == institution_key and Row.collection_key == collection_key):
+            # NOTE: if either `collection_key` or `institution_key` change for any given collection,
+            # the filesystem location of the saved files will also change,
+            # since resources are saved under the path `file_path_map_to`/`institution_key`/`collection_key`.
+
+            # TODO: keep track of potential stale directories so they can be manually deleted.
+            # This could involve logging calls to `add` where a row in the DB doesn't match the `institution_key` and `collection_key` parameters,
+            # but DOES match either 1) both the `institution_name` and `collection_name` parameters, or 2) one of the URI parameters.
+
+            self.db.insert({
+                'institution_key': institution_key,
+                'institution_name': institution_name,
+                'collection_key': collection_key,
+                'collection_name': collection_name,
+                'resourcelist_uri': resourcelist_uri,
+                'changelist_uri': changelist_uri,
+                'url_map_from': url_map_from,
+                'file_path_map_to': resource_dir,
+                'new': True
+                })
+        elif overwrite == True:
+
+            # TODO: if `file_path_map_to` changes, then we need to do a baseline synchronization again,
+            # because that means the files will change location on the filesystem.
+            # However, `file_path_map_to` should not be changed once chosen.
+            self.db.update({
+                'institution_key': institution_key,
+                'institution_name': institution_name,
+                'collection_key': collection_key,
+                'collection_name': collection_name,
+                'resourcelist_uri': resourcelist_uri,
+                'changelist_uri': changelist_uri,
+                'url_map_from': url_map_from,
+                'file_path_map_to': resource_dir,
+                }, Row.institution_key == institution_key and Row.collection_key == collection_key)
+        else:
+            # If row already exists and we don't want to overwrite, no-op.
+            # TODO: log
+            pass
 
 
     def __collection_identifier(self, repository_name, repository_identifier, set_name, set_identifier):
