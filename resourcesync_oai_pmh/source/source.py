@@ -22,16 +22,13 @@ def main():
     # ResourceSync server
     parser_a.add_argument('resourcesync-server-hostname', metavar='<resourcesync-server-hostname>', help='hostname of the ResourceSync source server')
     parser_a.add_argument('resourcesync-server-document-root', metavar='<resourcesync-server-document-root>', help='document root of the server (pass "apache" for "/var/www/html", or "tomcat" for "/var/lib/tomcat/webapps/default")')
-    parser_a.add_argument('--resource-dir', metavar='<path>', help='path to a directory under the document root where <metadata-dir>s will be put for each collection (if unspecified, defaults to "/resourcesync")')
-    parser_a.add_argument('--metadata-dir', metavar='<path>', help='path to a directory under the <resource-dir> where generated sitemaps will be put for the specified collection (if unspecified, defaults to <collection-name>)')
+    parser_a.add_argument('--resource-dir', metavar='<path>', help='path to a directory under <resourcesync-server-document-root> where <metadata-dir>s will be put for each collection (if unspecified, defaults to "/resourcesync")')
 
     # OAI-PMH data provider
-    parser_a.add_argument('oai-pmh-base-url', metavar='<oai-pmh-base-url>', help='OAI-PMH base URL to which query parameters are appended')
-    parser_a.add_argument('metadata-format', metavar='<oai-pmh-metadata-format>', choices=['oai_dc','mods'], help='"oai_dc" or "mods"')
-    parser_a.add_argument('--no-set-param', action='store_const', const=True, help='the collection/set name is specified in the base URL, not as an OAI-PMH query parameter')
-
+    parser_a.add_argument('oaipmh-base-url', metavar='<oaipmh-base-url>', help='OAI-PMH base URL to which query parameters are appended')
+    parser_a.add_argument('oaipmh-set', metavar='<oaipmh-set>', help='name of the collection of resources to generate capability documents for; must be a valid name for a directory in your web server\'s document root')
+    parser_a.add_argument('oaipmh-metadataprefix', metavar='<oaipmh-metadataprefix>', choices=['oai_dc','mods'], help='"oai_dc" or "mods"')
     parser_a.add_argument('strategy', metavar='<strategy>', choices=['resourcelist', 'new_changelist', 'inc_changelist'], help='"resourcelist", "new_changelist", or "inc_changelist"')
-    parser_a.add_argument('collection-name', metavar='<collection-name>', help='name of the collection of resources to generate capability documents for; must be a valid name for a directory in your web server\'s document root')
 
     ### Subcommand - multiple sitemaps
     parser_b = subparsers.add_parser('multi', description='Generate multiple sitemaps by specifying parameters as rows in a CSV.', help='generate multiple sitemaps')
@@ -69,22 +66,25 @@ def main():
     logger.debug('')
 
 
+    common_document_roots = {
+        'apache': '/var/www/html',
+        'tomcat': '/var/lib/tomcat/webapps/default'
+    }
+
     collections = []
 
     if args['command'] == 'single':
         collection = {}
-        collection['collection_name'] = args['collection-name']
         collection['resourcesync_url'] = args['resourcesync-server-hostname']
         collection['strategy'] = args['strategy']
 
         # some logic to set default values
-        collection['document_root'] = '/var/www/html' if args['resourcesync-server-document-root'] == 'apache' else '/var/lib/tomcat/webapps/default' if args['resourcesync-server-document-root'] == 'tomcat' else args['resourcesync-server-document-root']
+        collection['document_root'] = common_document_roots[args['resourcesync-server-document-root']] if args['resourcesync-server-document-root'] in common_document_roots else args['resourcesync-server-document-root']
         collection['resource_dir'] = args['resource_dir'] if args['resource_dir'] is not None else 'resourcesync'
-        collection['metadata_dir'] = args['metadata_dir'] if args['metadata_dir'] is not None else collection['collection_name']
 
-        collection['oaipmh_base_url'] = args['oai-pmh-base-url']
-        collection['oaipmh_set'] = args['collection-name'] if args['no_set_param'] is None else None
-        collection['oaipmh_metadataprefix'] = args['metadata-format']
+        collection['oaipmh_base_url'] = args['oaipmh-base-url']
+        collection['oaipmh_set'] = args['oaipmh-set']
+        collection['oaipmh_metadataprefix'] = args['oaipmh-metadataprefix']
 
         collections.append(collection)
 
@@ -95,18 +95,16 @@ def main():
                 try:
                     for row in csvreader:
                         collection = {}
-                        collection['collection_name'] = row['collection-name']
                         collection['resourcesync_url'] = row['resourcesync-server-hostname']
                         collection['strategy'] = row['strategy']
 
                         # some logic to set default values
-                        collection['document_root'] = '/var/www/html' if row['resourcesync-server-document-root'] == 'apache' else '/var/lib/tomcat/webapps/default' if row['resourcesync-server-document-root'] == 'tomcat' else row['resourcesync-server-document-root']
+                        collection['document_root'] = common_document_roots[args['resourcesync-server-document-root']] if args['resourcesync-server-document-root'] in common_document_roots else args['resourcesync-server-document-root']
                         collection['resource_dir'] = row['resource-dir'] if row['resource-dir'] is not '' else 'resourcesync'
-                        collection['metadata_dir'] = row['metadata-dir'] if row['metadata-dir'] is not '' else collection['collection_name']
 
-                        collection['oaipmh_base_url'] = row['oai-pmh-base-url']
-                        collection['oaipmh_set'] = row['collection-name'] if row['no-set-param'] is '' else None
-                        collection['oaipmh_metadataprefix'] = row['metadata-format']
+                        collection['oaipmh_base_url'] = row['oaipmh-base-url']
+                        collection['oaipmh_set'] = row['oaipmh-set']
+                        collection['oaipmh_metadataprefix'] = row['oaipmh-metadataprefix']
 
                         collections.append(collection)
                 except csv.Error as e:
@@ -139,7 +137,7 @@ def main():
                 rs = ResourceSync(generator=my_generator,
                                   strategy=collection['strategy'],
                                   resource_dir='{}/{}'.format(collection['document_root'], collection['resource_dir']),
-                                  metadata_dir=collection['metadata_dir'],
+                                  metadata_dir=collection['oaipmh_set'],
                                   description_dir=collection['document_root'],
                                   document_root=collection['document_root'],
                                   url_prefix='{}/{}'.format(collection['resourcesync_url'], collection['resource_dir']),
@@ -148,7 +146,7 @@ def main():
             except Exception as e:
                 logger.error('Unable to generate "{}" for collection "{}": {}'.format(
                     collection['strategy'],
-                    collection['collection_name'],
+                    collection['oaipmh_set'],
                     e))
 
     logger.info('')
