@@ -488,11 +488,11 @@ class PRRLATinyDB:
             print(dumps(results, indent=4))
 
 
-    def import_collections(self, resourcesync_sourcedescription, oaipmh_endpoint, collections_subset=None, **kwargs):
+    def import_collections(self, resourcesync_sourcedescription, oaipmh_endpoint, collection_keys=None, institution_name=None, resource_dir='resourcesync', overwrite=False):
         '''
         Adds an institution's ResourceSync-able collections to the database.
 
-        If `collections_subset` is specified, then add to the database only 
+        If `collection_keys` is specified, then add to the database only
         the collections specified by that list. Otherwise, add all collections 
         to the database.
 
@@ -501,12 +501,14 @@ class PRRLATinyDB:
               see https://www.openarchives.org/rs/1.1/resourcesync#SourceDesc
           oaipmh_endpoint: a OAI-PMH base URL
               see https://www.openarchives.org/OAI/openarchivesprotocol.html#Identify
-          collections_subset: a list of collection keys specifying an 
+          collection_keys: a list of collection keys specifying an
               exclusive list of collections to add to the database
-          **kwargs['resource_dir']: path to the local directory to store copies 
-              of the synced resources to, relative to the home directory "~"
-          **kwargs['overwrite']: whether or not to overwrite rows in the 
-              database that match the `collection_key` and `institution_key`
+          institution_name: human-readable name of the institution which
+              should be used instead of its OAI-PMH repositoryName
+          resource_dir: path to the local directory to store copies of the
+              synced resources to, relative to the home directory "~"
+          overwrite: whether or not to overwrite rows in the database that
+              match the `collection_key` and `institution_key`
 
         Returns:
           None
@@ -521,6 +523,8 @@ class PRRLATinyDB:
         set_spec_to_name = {z.setSpec:z.setName for z in sets}
         url_map_from = '/'.join(oaipmh_endpoint.split(sep='/')[:-1]) + '/'
 
+        i_name = institution_name if institution_name is not None else identify.repositoryName
+
         has_capability = lambda c, tag: tag.md is not None and 'capability' in tag.md.attrs and tag.md['capability'] == c
 
         for capabilitylist_url in capabilitylist_urls:
@@ -529,7 +533,7 @@ class PRRLATinyDB:
             set_spec = urllib.parse.unquote(urllib.parse.urlparse(capabilitylist_url).path.split(sep='/')[2])
 
             # If a subset of collections is specified, only add collections that belong to it. Otherwise, add all collections.
-            if (collections_subset is None or (collections_subset is not None and set_spec in collections_subset)):
+            if collection_keys is None or (collection_keys is not None and set_spec in collection_keys):
 
                 r_soup = BeautifulSoup(get(capabilitylist_url).content, 'xml')
 
@@ -547,19 +551,20 @@ class PRRLATinyDB:
                 except AttributeError:
                     changelist_url = '/'.join(resourcelist_url.split(sep='/')[:-1] + ['changelist_0000.xml'])
 
-                print(self.__collection_identifier(identify.repositoryName, identify.repositoryIdentifier, set_spec_to_name[set_spec], set_spec))
+                print(self.__collection_identifier(i_name, identify.repositoryIdentifier, set_spec_to_name[set_spec], set_spec))
 
                 # We can add the collection to the database now
                 # TODO: catch exceptions
                 self.__insert_or_update(
                     identify.repositoryIdentifier,
-                    identify.repositoryName,
+                    i_name,
                     set_spec,
                     set_spec_to_name[set_spec],
                     resourcelist_url,
                     changelist_url,
                     url_map_from,
-                    **kwargs
+                    resource_dir,
+                    overwrite
                     )
 
 
