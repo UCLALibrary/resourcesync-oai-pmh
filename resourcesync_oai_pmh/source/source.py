@@ -99,7 +99,7 @@ def main():
                         collection['strategy'] = row['strategy']
 
                         # some logic to set default values
-                        collection['document_root'] = common_document_roots[args['resourcesync-server-document-root']] if args['resourcesync-server-document-root'] in common_document_roots else args['resourcesync-server-document-root']
+                        collection['document_root'] = common_document_roots[row['resourcesync-server-document-root']] if row['resourcesync-server-document-root'] in common_document_roots else row['resourcesync-server-document-root']
                         collection['resource_dir'] = row['resource-dir'] if row['resource-dir'] is not '' else 'resourcesync'
 
                         collection['oaipmh_base_url'] = row['oaipmh-base-url']
