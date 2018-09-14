@@ -1,1 +1,1 @@
-resourcesync-server-hostname,resourcesync-server-document-root,resource-dir,metadata-dir,oai-pmh-base-url,metadata-format,no-set-param,strategy,collection-name
+resourcesync-server-hostname,resourcesync-server-document-root,resource-dir,oaipmh-base-url,oaipmh-set,oaipmh-metadataprefix,strategy
