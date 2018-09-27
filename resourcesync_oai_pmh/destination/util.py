@@ -555,7 +555,7 @@ class PRRLATinyDB:
 
                 # We can add the collection to the database now
                 # TODO: catch exceptions
-                self.__insert_or_update(
+                self.insert_or_update(
                     identify.repositoryIdentifier,
                     i_name,
                     set_spec,
@@ -594,7 +594,7 @@ class PRRLATinyDB:
                 self.db.remove(Row.institution_key == institution_key and Row.collection_key == collection_key)
 
 
-    def __insert_or_update(self, institution_key, institution_name, collection_key, collection_name, resourcelist_uri, changelist_uri, url_map_from, resource_dir='resourcesync', overwrite=False):
+    def insert_or_update(self, institution_key, institution_name, collection_key, collection_name, resourcelist_uri, changelist_uri, url_map_from, resource_dir='resourcesync', overwrite=False):
         '''
         Adds or updates a single row in the database.
 
