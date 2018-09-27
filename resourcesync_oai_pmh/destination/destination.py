@@ -114,15 +114,16 @@ def createSolrDoc(identifier, rowInDB, thumbnailurl, tags, hostHeuristic):
             continue
         else:
             value = tag.string
-            addValuePossiblyDuplicateKey(name, value, doc)
+            if value is not None:
+                addValuePossiblyDuplicateKey(name, value, doc)
 
-            # build up a set of all the years included in the metadata
-            if name == tagNameToColumn['date']:
-                years.add(value)
-            elif name == tagNameToColumn['title'] and 'first_title' not in doc:
-                doc['first_title'] = value
-            elif name == tagNameToColumn['identifier'] and validators.url(value) and os.path.splitext(urllib.parse.urlparse(value).path)[1] not in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
-                hyperlinks.append(value)
+                # build up a set of all the years included in the metadata
+                if name == tagNameToColumn['date']:
+                    years.add(value)
+                elif name == tagNameToColumn['title'] and 'first_title' not in doc:
+                    doc['first_title'] = value
+                elif name == tagNameToColumn['identifier'] and validators.url(value) and os.path.splitext(urllib.parse.urlparse(value).path)[1] not in ['.jpg', '.jpeg', '.png', '.tif', '.tiff']:
+                    hyperlinks.append(value)
 
     if len(years) > 0:
         decades = DateCleanerAndFaceter(years).decades()
